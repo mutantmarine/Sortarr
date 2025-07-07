@@ -674,7 +674,6 @@
             this.browseTVShowLocationBtn2.TabIndex = 5;
             this.browseTVShowLocationBtn2.Text = "...";
             this.browseTVShowLocationBtn2.UseVisualStyleBackColor = true;
-            this.browseTVShowLocationBtn2.Click += new System.EventHandler(this.browseTVShowLocationBtn2_Click);
             // 
             // browseTVShowLocationBtn3
             // 

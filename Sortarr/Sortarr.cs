@@ -31,14 +31,19 @@ namespace Sortarr
 
         public Sortarr()
         {
-            InitializeComponent();
-            Directory.CreateDirectory(profilePath);
-
-            // Check for command-line arguments
+            // Check for command-line arguments early
             string[] args = Environment.GetCommandLineArgs();
             isAutomated = args.Contains("--auto");
             if (isAutomated)
-                LogMessage("Running in automated mode (--auto).");
+            {
+                this.Visible = false; // Hide UI immediately
+                this.ShowInTaskbar = false; // Prevent taskbar icon
+                this.WindowState = FormWindowState.Minimized; // Start minimized in automated mode
+                LogMessage("Running in automated mode (--auto), window minimized.");
+            }
+
+            InitializeComponent();
+            Directory.CreateDirectory(profilePath);
 
             // Configure NumericUpDown for scheduling
             numericUpDownSchedule.Minimum = 1;
@@ -99,7 +104,6 @@ namespace Sortarr
                 mediaType.Value.UpDown.Minimum = 1;
                 mediaType.Value.UpDown.Maximum = 5;
                 mediaType.Value.UpDown.Value = 1;
-                // Add ValueChanged handler
                 mediaType.Value.UpDown.ValueChanged += (s, e) => UpdateControlVisibility();
             }
 
@@ -113,37 +117,67 @@ namespace Sortarr
 
             LoadProfilesToDropdown();
 
-            // Load selected profile in auto mode
-            if (isAutomated && !string.IsNullOrWhiteSpace(profileSelector.Text))
-            {
-                loadProfileBtn_Click(this, EventArgs.Empty);
-            }
-
-            HookUpEventHandlers();
-            UpdateControlVisibility();
-            ValidateSetup();
-
-            // Start HTTP server if remote config is enabled
-            if (checkboxEnableRemoteConfig.Checked)
-                StartHttpServer();
-
             // Handle automated mode
             if (isAutomated)
             {
-                Task.Run(async () =>
+                // Run automated mode logic asynchronously
+                Task.Run(async () => await HandleAutomatedModeAsync());
+            }
+            else
+            {
+                HookUpEventHandlers();
+                UpdateControlVisibility();
+                ValidateSetup();
+
+                // Start HTTP server if remote config is enabled
+                if (checkboxEnableRemoteConfig.Checked)
+                    StartHttpServer();
+            }
+        }
+
+        private async Task HandleAutomatedModeAsync()
+        {
+            try
+            {
+                var profiles = Directory.GetFiles(profilePath, "*.txt").Select(Path.GetFileNameWithoutExtension).OrderBy(p => p).ToList();
+                if (!profiles.Any())
                 {
-                    await Task.Delay(1000); // Allow UI to initialize
-                    BeginInvoke((SystemAction)(() =>
-                    {
-                        sortarrBtn_Click(this, EventArgs.Empty);
-                    }));
-                    await Task.Delay(1000); // Allow operations to complete
-                    BeginInvoke((SystemAction)(() =>
-                    {
-                        StopHttpServer();
-                        Close();
-                    }));
-                });
+                    LogMessage("Error: No profiles found for automated mode.");
+                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: No profiles found for automated mode.\n\n");
+                    await Task.Delay(1000); // Allow logging
+                    Application.Exit();
+                    return;
+                }
+
+                profileSelector.Text = profiles.First();
+                loadProfileBtn_Click(this, EventArgs.Empty);
+                LogMessage($"Automatically loaded first profile: {profileSelector.Text}");
+
+                // Validate inputs
+                if (!ValidateInputs())
+                {
+                    LogMessage("Error: Validation failed for automated mode. Check profile settings.");
+                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: Validation failed for automated mode. Check profile settings in {profileSelector.Text}.txt\n\n");
+                    await Task.Delay(1000); // Allow logging
+                    StopHttpServer();
+                    Application.Exit();
+                    return;
+                }
+
+                await RunSortarrProcess();
+
+                // Extended delay to ensure all operations complete
+                await Task.Delay(5000);
+
+                StopHttpServer();
+                Application.Exit();
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Automated mode error: {ex.Message}");
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Automated Mode Error: {ex.Message}\n\n");
+                await Task.Delay(1000);
+                Application.Exit();
             }
         }
 
@@ -267,7 +301,8 @@ namespace Sortarr
             catch (Exception ex)
             {
                 LogMessage($"Failed to start HTTP server: {ex.Message}");
-                if (!isAutomated)
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] HTTP Server Error: {ex.Message}\n\n");
+                if (!isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to start HTTP server: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 checkboxEnableRemoteConfig.Checked = false;
             }
@@ -287,7 +322,8 @@ namespace Sortarr
             catch (Exception ex)
             {
                 LogMessage($"Failed to stop HTTP server: {ex.Message}");
-                if (!isAutomated)
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] HTTP Server Error: {ex.Message}\n\n");
+                if (!isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to stop HTTP server: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
             }
         }
@@ -329,6 +365,7 @@ namespace Sortarr
                 catch (Exception ex)
                 {
                     LogMessage($"HTTP request error: {ex.Message}");
+                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] HTTP Request Error: {ex.Message}\n\n");
                 }
             }
         }
@@ -403,23 +440,29 @@ namespace Sortarr
             return sb.ToString();
         }
 
-
         private void UpdateConfigFromPost(string postData)
         {
             var pairs = postData.Split('&').Select(p => p.Split('=')).ToDictionary(p => p[0], p => Uri.UnescapeDataString(p[1].Replace("+", " ")));
-            BeginInvoke((SystemAction)(() =>
+            if (!isAutomated && IsHandleCreated)
             {
-                if (pairs.ContainsKey("filebotPath")) sourceFilebotFolder.Text = pairs["filebotPath"];
-                if (pairs.ContainsKey("downloadsFolder")) sourceDownloadsFolder.Text = pairs["downloadsFolder"];
-                if (pairs.ContainsKey("hdMovie1")) sourceFolderMovies1.Text = string.IsNullOrWhiteSpace(pairs["hdMovie1"]) ? "Default" : pairs["hdMovie1"];
-                if (pairs.ContainsKey("4kMovie1")) sourceFolder4kMovies1.Text = string.IsNullOrWhiteSpace(pairs["4kMovie1"]) ? "Default" : pairs["4kMovie1"];
-                if (pairs.ContainsKey("hdTV1")) sourceFolderTVShows1.Text = string.IsNullOrWhiteSpace(pairs["hdTV1"]) ? "Default" : pairs["hdTV1"];
-                if (pairs.ContainsKey("4kTV1")) sourceFolder4kTVShows1.Text = string.IsNullOrWhiteSpace(pairs["4kTV1"]) ? "Default" : pairs["4kTV1"];
-                if (pairs.ContainsKey("overrideMovies")) overrideMoviesTextBox.Text = pairs["overrideMovies"];
-                if (pairs.ContainsKey("overrideTV")) overrideTVShowsTextBox.Text = pairs["overrideTV"];
-                ValidateSetup();
-                LogMessage("Configuration updated via web interface.");
-            }));
+                BeginInvoke((SystemAction)(() =>
+                {
+                    if (pairs.ContainsKey("filebotPath")) sourceFilebotFolder.Text = pairs["filebotPath"];
+                    if (pairs.ContainsKey("downloadsFolder")) sourceDownloadsFolder.Text = pairs["downloadsFolder"];
+                    if (pairs.ContainsKey("hdMovie1")) sourceFolderMovies1.Text = string.IsNullOrWhiteSpace(pairs["hdMovie1"]) ? "Default" : pairs["hdMovie1"];
+                    if (pairs.ContainsKey("4kMovie1")) sourceFolder4kMovies1.Text = string.IsNullOrWhiteSpace(pairs["4kMovie1"]) ? "Default" : pairs["4kMovie1"];
+                    if (pairs.ContainsKey("hdTV1")) sourceFolderTVShows1.Text = string.IsNullOrWhiteSpace(pairs["hdTV1"]) ? "Default" : pairs["hdTV1"];
+                    if (pairs.ContainsKey("4kTV1")) sourceFolder4kTVShows1.Text = string.IsNullOrWhiteSpace(pairs["4kTV1"]) ? "Default" : pairs["4kTV1"];
+                    if (pairs.ContainsKey("overrideMovies")) overrideMoviesTextBox.Text = pairs["overrideMovies"];
+                    if (pairs.ContainsKey("overrideTV")) overrideTVShowsTextBox.Text = pairs["overrideTV"];
+                    ValidateSetup();
+                    LogMessage("Configuration updated via web interface.");
+                }));
+            }
+            else
+            {
+                LogMessage("Skipping UI update in automated mode or handle not created.");
+            }
         }
 
         private bool IsTaskScheduled()
@@ -437,7 +480,7 @@ namespace Sortarr
             catch (Exception ex)
             {
                 LogMessage($"Error checking scheduled task: {ex.Message}");
-                File.AppendAllText(logFilePath, $"Task Check Error: {ex.Message}\n\n");
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Task Check Error: {ex.Message}\n\n");
                 return false;
             }
         }
@@ -446,6 +489,17 @@ namespace Sortarr
         {
             try
             {
+                // Check if at least one profile exists
+                if (!Directory.GetFiles(profilePath, "*.txt").Any())
+                {
+                    string errorMessage = "Cannot create scheduled task: No profiles found. Please save a profile first.";
+                    LogMessage(errorMessage);
+                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Task Creation Error: {errorMessage}\n\n");
+                    if (!isAutomated && IsHandleCreated)
+                        BeginInvoke((SystemAction)(() => MessageBox.Show(errorMessage, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                    return;
+                }
+
                 bool isElevated;
                 using (WindowsIdentity identity = WindowsIdentity.GetCurrent())
                 {
@@ -457,17 +511,17 @@ namespace Sortarr
                 {
                     string errorMessage = "Sortarr must be run as administrator to create scheduled tasks.";
                     LogMessage(errorMessage);
-                    File.AppendAllText(logFilePath, $"Task Creation Error: {errorMessage}\n\n");
-                    if (!isAutomated)
-                        MessageBox.Show($"{errorMessage}\nRight-click Sortarr.exe and select 'Run as administrator'.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Task Creation Error: {errorMessage}\n\n");
+                    if (!isAutomated && IsHandleCreated)
+                        BeginInvoke((SystemAction)(() => MessageBox.Show($"{errorMessage}\nRight-click Sortarr.exe and select 'Run as administrator'.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                     return;
                 }
 
                 if (IsTaskScheduled())
                 {
                     LogMessage("Scheduled task 'Sortarr_AutoSort' already exists.");
-                    if (!isAutomated)
-                        MessageBox.Show("A scheduled task already exists. Remove it first to create a new one.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    if (!isAutomated && IsHandleCreated)
+                        BeginInvoke((SystemAction)(() => MessageBox.Show("A scheduled task already exists. Remove it first to create a new one.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning)));
                     return;
                 }
 
@@ -476,10 +530,13 @@ namespace Sortarr
                     TaskScheduler.TaskDefinition td = ts.NewTask();
                     td.RegistrationInfo.Description = "Automatically runs Sortarr to process and sort media files.";
                     td.Principal.RunLevel = TaskScheduler.TaskRunLevel.Highest;
+                    td.Settings.Enabled = true; // Ensure task is enabled
+                    td.Settings.Hidden = true; // Hide task window
 
                     TaskScheduler.DailyTrigger trigger = new TaskScheduler.DailyTrigger
                     {
-                        Repetition = new TaskScheduler.RepetitionPattern(TimeSpan.FromMinutes((double)numericUpDownSchedule.Value), TimeSpan.FromDays(1)),
+                        StartBoundary = DateTime.Now, // Start immediately
+                        Repetition = new TaskScheduler.RepetitionPattern(TimeSpan.FromMinutes((double)numericUpDownSchedule.Value), TimeSpan.Zero),
                         Enabled = true
                     };
                     td.Triggers.Add(trigger);
@@ -490,9 +547,9 @@ namespace Sortarr
 
                     ts.RootFolder.RegisterTaskDefinition("Sortarr_AutoSort", td);
 
-                    LogMessage($"Scheduled task 'Sortarr_AutoSort' created to run every {numericUpDownSchedule.Value} minute(s).");
-                    if (!isAutomated)
-                        MessageBox.Show($"Scheduled task created to run Sortarr every {numericUpDownSchedule.Value} minute(s).", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    LogMessage($"Scheduled task 'Sortarr_AutoSort' created to run every {numericUpDownSchedule.Value} minute(s) indefinitely, starting now.");
+                    if (!isAutomated && IsHandleCreated)
+                        BeginInvoke((SystemAction)(() => MessageBox.Show($"Scheduled task created to run Sortarr every {numericUpDownSchedule.Value} minute(s) indefinitely, starting now.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information)));
 
                     automateBtn.Enabled = false;
                     removeSortarrAutomation.Enabled = true;
@@ -503,9 +560,9 @@ namespace Sortarr
             {
                 string errorMessage = $"Failed to create scheduled task: {ex.Message}\nEnsure Sortarr is running as administrator.";
                 LogMessage(errorMessage);
-                File.AppendAllText(logFilePath, $"Scheduled Task Creation Error: {ex.Message}\n\n");
-                if (!isAutomated)
-                    MessageBox.Show($"{errorMessage}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Scheduled Task Creation Error: {ex.Message}\n\n");
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show($"{errorMessage}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
             }
         }
 
@@ -524,9 +581,9 @@ namespace Sortarr
                 {
                     string errorMessage = "Sortarr must be run as administrator to remove scheduled tasks.";
                     LogMessage(errorMessage);
-                    File.AppendAllText(logFilePath, $"Task Removal Error: {errorMessage}\n\n");
-                    if (!isAutomated)
-                        MessageBox.Show($"{errorMessage}\nRight-click Sortarr.exe and select 'Run as administrator'.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Task Removal Error: {errorMessage}\n\n");
+                    if (!isAutomated && IsHandleCreated)
+                        BeginInvoke((SystemAction)(() => MessageBox.Show($"{errorMessage}\nRight-click Sortarr.exe and select 'Run as administrator'.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                     return;
                 }
 
@@ -538,8 +595,8 @@ namespace Sortarr
                     {
                         ts.RootFolder.DeleteTask(taskName, false);
                         LogMessage($"Scheduled task '{taskName}' removed successfully.");
-                        if (!isAutomated)
-                            MessageBox.Show($"Scheduled task '{taskName}' removed successfully.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        if (!isAutomated && IsHandleCreated)
+                            BeginInvoke((SystemAction)(() => MessageBox.Show($"Scheduled task '{taskName}' removed successfully.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information)));
 
                         bool isSetupValid = ValidateSetup();
                         automateBtn.Enabled = checkboxScheduleTask.Checked && isSetupValid;
@@ -549,8 +606,8 @@ namespace Sortarr
                     else
                     {
                         LogMessage($"Scheduled task '{taskName}' not found.");
-                        if (!isAutomated)
-                            MessageBox.Show($"Scheduled task '{taskName}' not found.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        if (!isAutomated && IsHandleCreated)
+                            BeginInvoke((SystemAction)(() => MessageBox.Show($"Scheduled task '{taskName}' not found.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning)));
                     }
                 }
             }
@@ -558,9 +615,9 @@ namespace Sortarr
             {
                 string errorMessage = $"Failed to remove scheduled task: {ex.Message}\nEnsure Sortarr is running as administrator.";
                 LogMessage(errorMessage);
-                File.AppendAllText(logFilePath, $"Scheduled Task Removal Error: {ex.Message}\n\n");
-                if (!isAutomated)
-                    MessageBox.Show($"{errorMessage}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Scheduled Task Removal Error: {ex.Message}\n\n");
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show($"{errorMessage}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
             }
         }
 
@@ -570,7 +627,7 @@ namespace Sortarr
             {
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = "https://www.paypal.com/donate/?business=WBHFP3TMYUHS8&amount=5&no_recurring=1&item_name=Thank+you+for+trying+my+program.+It+took+many+hours+and+late+nights+to+get+it+up+and+running.+Your+donations+are+appreciated%21&currency_code=USD",
+                    FileName = "https://www.paypal.com/donate/?business=WBHFP3TMYUHS8&amount=5&no_recurring=1&item_name=Thank+you+for+trying+my+program.+It+took+many+hours+and+late+nights+to+get+it+up+and+running.+Your+donations+are+appreciated%21¤cy_code=USD",
                     UseShellExecute = true
                 });
                 LogMessage("Opened donation link: https://www.paypal.com");
@@ -578,8 +635,9 @@ namespace Sortarr
             catch (Exception ex)
             {
                 LogMessage($"Failed to open donation link: {ex.Message}");
-                if (!isAutomated)
-                    MessageBox.Show($"Failed to open donation link: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Donation Link Error: {ex.Message}\n\n");
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to open donation link: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
             }
         }
 
@@ -597,8 +655,9 @@ namespace Sortarr
             catch (Exception ex)
             {
                 LogMessage($"Failed to open localhost: {ex.Message}");
-                if (!isAutomated)
-                    MessageBox.Show($"Failed to open http://localhost:6969/: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Localhost Error: {ex.Message}\n\n");
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to open http://localhost:6969/: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
             }
         }
 
@@ -608,8 +667,8 @@ namespace Sortarr
             if (string.IsNullOrWhiteSpace(profileName))
             {
                 LogMessage("No profile selected to delete.");
-                if (!isAutomated)
-                    MessageBox.Show("Please select a profile to delete.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show("Please select a profile to delete.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning)));
                 return;
             }
 
@@ -617,8 +676,8 @@ namespace Sortarr
             if (!File.Exists(path))
             {
                 LogMessage($"Profile '{profileName}' not found.");
-                if (!isAutomated)
-                    MessageBox.Show($"Profile '{profileName}' not found.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Profile '{profileName}' not found.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 return;
             }
 
@@ -626,17 +685,17 @@ namespace Sortarr
             {
                 File.Delete(path);
                 LogMessage($"Profile '{profileName}' deleted successfully.");
-                if (!isAutomated)
-                    MessageBox.Show($"Profile '{profileName}' deleted successfully.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Profile '{profileName}' deleted successfully.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information)));
                 LoadProfilesToDropdown();
                 profileSelector.Text = "";
             }
             catch (Exception ex)
             {
                 LogMessage($"Failed to delete profile '{profileName}': {ex.Message}");
-                File.AppendAllText(logFilePath, $"Profile Deletion Error: {profileName}\nException: {ex.Message}\n\n");
-                if (!isAutomated)
-                    MessageBox.Show($"Failed to delete profile '{profileName}': {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Profile Deletion Error: {profileName}\nException: {ex.Message}\n\n");
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to delete profile '{profileName}': {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
             }
         }
 
@@ -741,11 +800,15 @@ namespace Sortarr
 
         private void LogMessage(string message)
         {
-            BeginInvoke((SystemAction)(() =>
+            if (!isAutomated && IsHandleCreated)
             {
-                logBox.Items.Add($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}");
-                logBox.TopIndex = logBox.Items.Count - 1;
-            }));
+                BeginInvoke((SystemAction)(() =>
+                {
+                    logBox.Items.Add($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}");
+                    logBox.TopIndex = logBox.Items.Count - 1;
+                }));
+            }
+            File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}\n\n");
         }
 
         private void browseFilebotLocationBtn_Click(object sender, EventArgs e)
@@ -781,8 +844,8 @@ namespace Sortarr
             if (string.IsNullOrWhiteSpace(profileName))
             {
                 LogMessage("No profile name entered for saving.");
-                if (!isAutomated)
-                    MessageBox.Show("Enter a profile name to save.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show("Enter a profile name to save.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning)));
                 return;
             }
 
@@ -830,15 +893,15 @@ namespace Sortarr
                 File.WriteAllLines(path, lines);
                 LoadProfilesToDropdown();
                 LogMessage($"Profile '{profileName}' saved successfully.");
-                if (!isAutomated)
-                    MessageBox.Show("Profile saved!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show("Profile saved!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information)));
             }
             catch (Exception ex)
             {
                 LogMessage($"Failed to save profile '{profileName}': {ex.Message}");
-                File.AppendAllText(logFilePath, $"Profile Save Error: {profileName}\nException: {ex.Message}\n\n");
-                if (!isAutomated)
-                    MessageBox.Show($"Failed to save profile '{profileName}': {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Profile Save Error: {profileName}\nException: {ex.Message}\n\n");
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to save profile '{profileName}': {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
             }
         }
 
@@ -850,8 +913,9 @@ namespace Sortarr
             if (!File.Exists(path))
             {
                 LogMessage($"Profile '{profileName}' not found.");
-                if (!isAutomated)
-                    MessageBox.Show("Profile not found.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Profile Load Error: {profileName} not found.\n\n");
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show("Profile not found.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 return;
             }
 
@@ -906,15 +970,15 @@ namespace Sortarr
                 UpdateControlVisibility();
                 ValidateSetup();
                 LogMessage($"Profile '{profileName}' loaded successfully.");
-                if (!isAutomated)
-                    MessageBox.Show("Profile loaded.", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show("Profile loaded.", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information)));
             }
             catch (Exception ex)
             {
                 LogMessage($"Failed to load profile '{profileName}': {ex.Message}");
-                File.AppendAllText(logFilePath, $"Profile Load Error: {profileName}\nException: {ex.Message}\n\n");
-                if (!isAutomated)
-                    MessageBox.Show($"Failed to load profile '{profileName}': {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Profile Load Error: {profileName}\nException: {ex.Message}\n\n");
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to load profile '{profileName}': {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
             }
         }
 
@@ -935,16 +999,18 @@ namespace Sortarr
             if (!File.Exists(sourceFilebotFolder.Text))
             {
                 LogMessage("Error: FileBot executable not found.");
-                if (!isAutomated)
-                    MessageBox.Show("FileBot executable not found at the specified path.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: FileBot executable not found at {sourceFilebotFolder.Text}.\n\n");
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show("FileBot executable not found at the specified path.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 return false;
             }
 
             if (!Directory.Exists(sourceDownloadsFolder.Text))
             {
                 LogMessage("Error: Downloads folder not found.");
-                if (!isAutomated)
-                    MessageBox.Show("Downloads folder not found.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: Downloads folder not found at {sourceDownloadsFolder.Text}.\n\n");
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show("Downloads folder not found.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 return false;
             }
 
@@ -959,8 +1025,9 @@ namespace Sortarr
                         if (!Directory.Exists(mediaType.Value.TextBoxes[i].Text) || mediaType.Value.TextBoxes[i].Text == "Default")
                         {
                             LogMessage($"Error: {mediaType.Key} folder {i + 1} not found or is set to 'Default'.");
-                            if (!isAutomated)
-                                MessageBox.Show($"{mediaType.Key} folder {i + 1} not found or is set to 'Default'.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: {mediaType.Key} folder {i + 1} not found or is set to 'Default' at {mediaType.Value.TextBoxes[i].Text}.\n\n");
+                            if (!isAutomated && IsHandleCreated)
+                                BeginInvoke((SystemAction)(() => MessageBox.Show($"{mediaType.Key} folder {i + 1} not found or is set to 'Default'.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                             return false;
                         }
                     }
@@ -971,8 +1038,9 @@ namespace Sortarr
             if (!hasValidMediaType)
             {
                 LogMessage("Error: At least one media type must be enabled with valid folders.");
-                if (!isAutomated)
-                    MessageBox.Show("At least one media type must be enabled with valid folders.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: At least one media type must be enabled with valid folders.\n\n");
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show("At least one media type must be enabled with valid folders.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 return false;
             }
 
@@ -1021,7 +1089,8 @@ namespace Sortarr
             if (!File.Exists(filebotPath))
             {
                 LogMessage("Error: FileBot executable not found.");
-                if (!isAutomated)
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: FileBot executable not found at {filebotPath}.\n\n");
+                if (!isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show("FileBot executable not found at the specified path.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 return;
             }
@@ -1046,7 +1115,8 @@ namespace Sortarr
             if (mediaFiles.Count == 0)
             {
                 LogMessage("No media files found in the downloads folder.");
-                if (!isAutomated)
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] No media files found in the downloads folder.\n\n");
+                if (!isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show("No media files found in the downloads folder.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning)));
                 return;
             }
@@ -1060,7 +1130,8 @@ namespace Sortarr
             catch (Exception ex)
             {
                 LogMessage($"Failed to initialize log file: {ex.Message}");
-                if (!isAutomated)
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Failed to initialize log file: {ex.Message}\n\n");
+                if (!isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to initialize log file: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 return;
             }
@@ -1073,6 +1144,14 @@ namespace Sortarr
 
                 try
                 {
+                    // Verify file exists and is accessible
+                    if (!File.Exists(file))
+                    {
+                        LogMessage($"Error: File {filename} does not exist.");
+                        File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] File Missing: {filename}\n\n");
+                        continue;
+                    }
+
                     try
                     {
                         using (File.OpenRead(file)) { }
@@ -1080,8 +1159,8 @@ namespace Sortarr
                     catch (Exception ex)
                     {
                         LogMessage($"Error: File {filename} is inaccessible: {ex.Message}");
-                        File.AppendAllText(logFilePath, $"File: {filename}\nException: {ex.Message}\n\n");
-                        if (!isAutomated)
+                        File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] File: {filename}\nException: {ex.Message}\n\n");
+                        if (!isAutomated && IsHandleCreated)
                             BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to access {filename}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                         continue;
                     }
@@ -1111,6 +1190,9 @@ namespace Sortarr
 
                     LogMessage($"Executing FileBot command: {filebotPath} {args}");
 
+                    // Add delay to ensure file is ready
+                    await Task.Delay(500);
+
                     ProcessStartInfo psi = new ProcessStartInfo
                     {
                         FileName = filebotPath,
@@ -1130,13 +1212,14 @@ namespace Sortarr
                         proc.WaitForExit();
                         exitCode = proc.ExitCode;
 
-                        File.AppendAllText(logFilePath, $"File: {filename}\nCommand: {filebotPath} {args}\nOutput: {output}\nError: {error}\nExitCode: {exitCode}\n\n");
+                        File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] File: {filename}\nCommand: {filebotPath} {args}\nOutput: {output}\nError: {error}\nExitCode: {exitCode}\n\n");
                     }
 
                     if (exitCode != 0)
                     {
                         LogMessage($"FileBot failed for {filename}: {error}");
-                        if (!isAutomated)
+                        File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] FileBot Error: {filename}\nError: {error}\n\n");
+                        if (!isAutomated && IsHandleCreated)
                             BeginInvoke((SystemAction)(() => MessageBox.Show($"FileBot failed for {filename}: {error}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                         continue;
                     }
@@ -1167,6 +1250,7 @@ namespace Sortarr
                                 catch (Exception ex)
                                 {
                                     LogMessage($"Failed to correct year for {newFileName}: {ex.Message}");
+                                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Year Correction Error: {newFileName}\nException: {ex.Message}\n\n");
                                 }
                             }
                             // Correct episode format (e.g., SE or 1x01 to S01E01)
@@ -1190,6 +1274,7 @@ namespace Sortarr
                                 catch (Exception ex)
                                 {
                                     LogMessage($"Failed to rename {newFileName} to {correctedName}: {ex.Message}");
+                                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Episode Naming Error: {newFileName}\nException: {ex.Message}\n\n");
                                 }
                             }
                         }
@@ -1210,6 +1295,7 @@ namespace Sortarr
                                 catch (Exception ex)
                                 {
                                     LogMessage($"Failed to rename {newFileName} to {correctedName}: {ex.Message}");
+                                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Filename Correction Error: {newFileName}\nException: {ex.Message}\n\n");
                                 }
                             }
                         }
@@ -1219,224 +1305,75 @@ namespace Sortarr
                     else
                     {
                         LogMessage($"No new file detected for {filename}. FileBot output: {output}");
-                        if (!isAutomated)
-                            BeginInvoke((SystemAction)(() => MessageBox.Show($"No new file detected for {filename}. FileBot output: {output}", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning)));
+                        File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] No new file detected for {filename}. Output: {output}\n\n");
                     }
                 }
                 catch (Exception ex)
                 {
-                    LogMessage($"Error processing {filename}: {ex.Message}");
-                    File.AppendAllText(logFilePath, $"File: {filename}\nException: {ex.Message}\n\n");
-                    if (!isAutomated)
-                        BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to process {filename}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                    LogMessage($"Unexpected error processing {filename}: {ex.Message}");
+                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Unexpected Error: {filename}\nException: {ex.Message}\n\n");
+                    if (!isAutomated && IsHandleCreated)
+                        BeginInvoke((SystemAction)(() => MessageBox.Show($"Unexpected error processing {filename}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                }
+            }
+
+            // Phase 2: Move files to final destinations
+            foreach (var mapping in fileMappings)
+            {
+                string original = mapping.Original;
+                string renamed = mapping.Renamed;
+                string filename = Path.GetFileName(renamed);
+                bool isTvShow = IsTVShow(filename);
+                bool is4k = Is4K(filename);
+                string mediaType = isTvShow ? (is4k ? "4KTVShow" : "HDTVShow") : (is4k ? "4KMovie" : "HDMovie");
+                string[] finalDestinations = GetEnabledDirectories(mediaType);
+
+                if (finalDestinations.Length == 0)
+                {
+                    LogMessage($"No valid destination folders for {mediaType}. Skipping move for {filename}.");
+                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] No valid destination folders for {mediaType}. File: {filename}\n\n");
                     continue;
                 }
 
-                await Task.Delay(10);
-            }
+                string finalDest = finalDestinations.First();
+                string finalPath = Path.Combine(finalDest, Path.GetFileName(renamed));
 
-            LogMessage("Add New Media phase completed.");
-
-            // Phase 2: Sort Media
-            var finalDestinations = new Dictionary<string, string[]>
-            {
-                { "HDMovie", GetEnabledDirectories("HDMovie") },
-                { "4KMovie", GetEnabledDirectories("4KMovie") },
-                { "HDTVShow", GetEnabledDirectories("HDTVShow") },
-                { "4KTVShow", GetEnabledDirectories("4KTVShow") }
-            };
-
-            var files = tempFolders.Values
-                .Where(Directory.Exists)
-                .SelectMany(folder => Directory.GetFiles(folder, "*.*", SearchOption.AllDirectories))
-                .Where(f => mediaExtensions.Contains(Path.GetExtension(f).ToLower()))
-                .ToList();
-
-            if (files.Count == 0)
-            {
-                LogMessage("No media files found in temporary folders.");
-                if (!isAutomated)
-                    BeginInvoke((SystemAction)(() => MessageBox.Show("No media files found in temporary folders.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning)));
-                return;
-            }
-
-            LogMessage($"Found {files.Count} media files to sort.");
-
-            foreach (var mediaType in tempFolders.Keys)
-            {
-                bool isMovie = mediaType.Contains("Movie");
-                string tempFolder = tempFolders[mediaType];
-                var finalSearchFolders = finalDestinations[mediaType].Where(f => !string.IsNullOrWhiteSpace(f)).ToArray();
-
-                if (finalSearchFolders.Length == 0)
+                try
                 {
-                    LogMessage($"No valid destination directories configured for {mediaType}. Skipping.");
-                    continue;
+                    File.Move(renamed, finalPath);
+                    LogMessage($"Moved {filename} to {finalPath}");
+                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Moved {filename} to {finalPath}\n\n");
                 }
-
-                var sortedMediaFiles = Directory.GetFiles(tempFolder, "*.*", SearchOption.AllDirectories)
-                    .Where(f => mediaExtensions.Contains(Path.GetExtension(f).ToLower())).ToList();
-
-                LogMessage($"Processing {mediaType}: {sortedMediaFiles.Count} files");
-
-                foreach (var file in sortedMediaFiles)
+                catch (Exception ex)
                 {
-                    var mapping = fileMappings.FirstOrDefault(m => m.Renamed == file);
-                    string filenameNoExt = Path.GetFileNameWithoutExtension(file);
-                    LogMessage($"Sorting file: {Path.GetFileName(file)} ({mediaType})");
-
-                    if (isMovie)
-                    {
-                        bool foundDuplicate = false;
-                        foreach (var folder in finalSearchFolders)
-                        {
-                            if (!Directory.Exists(folder)) continue;
-                            var existingFiles = Directory.GetFiles(folder, "*.*", SearchOption.TopDirectoryOnly);
-                            if (existingFiles.Any(f => Path.GetFileNameWithoutExtension(f).Equals(filenameNoExt, StringComparison.OrdinalIgnoreCase)))
-                            {
-                                try
-                                {
-                                    File.Delete(file);
-                                    LogMessage($"Deleted duplicate movie: {Path.GetFileName(file)} in {folder}");
-                                    if (!isAutomated)
-                                        BeginInvoke((SystemAction)(() => MessageBox.Show($"Duplicate movie found: {Path.GetFileName(file)} in {folder}", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information)));
-                                }
-                                catch (Exception ex)
-                                {
-                                    LogMessage($"Failed to delete duplicate {Path.GetFileName(file)}: {ex.Message}");
-                                    if (!isAutomated)
-                                        BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to delete {Path.GetFileName(file)}: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
-                                }
-                                foundDuplicate = true;
-                                break;
-                            }
-                        }
-
-                        if (!foundDuplicate)
-                        {
-                            // Use the first directory as the default destination for movies
-                            string defaultDest = finalSearchFolders.First();
-                            Directory.CreateDirectory(defaultDest);
-                            string finalPath = Path.Combine(defaultDest, Path.GetFileName(file));
-                            try
-                            {
-                                File.Move(file, finalPath);
-                                LogMessage($"Moved movie to: {finalPath}");
-                            }
-                            catch (Exception ex)
-                            {
-                                LogMessage($"Failed to move {Path.GetFileName(file)}: {ex.Message}");
-                                if (!isAutomated)
-                                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to move {Path.GetFileName(file)}: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
-                            }
-                        }
-                    }
-                    else
-                    {
-                        // Extract show folder from the parent directory (e.g., "SpongeBob SquarePants (1999)")
-                        string showFolderName = Path.GetFileName(Path.GetDirectoryName(file));
-                        bool matchFound = false;
-
-                        // Ensure the file is in a show-specific subfolder (not directly in HDTVShows or 4KTVShows)
-                        if (Path.GetDirectoryName(file).EndsWith(tempFolder, StringComparison.OrdinalIgnoreCase))
-                        {
-                            LogMessage($"Warning: File {Path.GetFileName(file)} is directly in {tempFolder}, skipping as show folder is not properly structured.");
-                            continue;
-                        }
-
-                        foreach (var folder in finalSearchFolders)
-                        {
-                            if (!Directory.Exists(folder)) continue;
-                            var existingFolders = Directory.GetDirectories(folder);
-                            var matchingFolder = existingFolders.FirstOrDefault(f => Path.GetFileName(f).Equals(showFolderName, StringComparison.OrdinalIgnoreCase));
-                            if (matchingFolder != null)
-                            {
-                                string targetPath = Path.Combine(matchingFolder, Path.GetFileName(file));
-                                try
-                                {
-                                    File.Move(file, targetPath);
-                                    LogMessage($"Moved TV show to existing folder: {targetPath}");
-                                    if (!isAutomated)
-                                        BeginInvoke((SystemAction)(() => MessageBox.Show($"Moved TV show {Path.GetFileName(file)} to {matchingFolder}", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information)));
-                                }
-                                catch (Exception ex)
-                                {
-                                    LogMessage($"Failed to move {Path.GetFileName(file)}: {ex.Message}");
-                                    if (!isAutomated)
-                                        BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to move {Path.GetFileName(file)}: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
-                                }
-                                matchFound = true;
-                                break;
-                            }
-                        }
-
-                        if (!matchFound)
-                        {
-                            // Use the first directory as the default destination for TV shows
-                            string defaultDest = finalSearchFolders.First();
-                            string newShowPath = Path.Combine(defaultDest, showFolderName);
-                            Directory.CreateDirectory(newShowPath);
-                            string targetPath = Path.Combine(newShowPath, Path.GetFileName(file));
-                            try
-                            {
-                                File.Move(file, targetPath);
-                                LogMessage($"Moved TV show to new folder: {targetPath}");
-                                if (!isAutomated)
-                                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Moved TV show {Path.GetFileName(file)} to new folder {newShowPath}", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information)));
-                            }
-                            catch (Exception ex)
-                            {
-                                LogMessage($"Failed to move {Path.GetFileName(file)}: {ex.Message}");
-                                if (!isAutomated)
-                                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to move {Path.GetFileName(file)}: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
-                            }
-                        }
-
-                        // Clean up temporary show folder if empty
-                        string showFolder = Path.GetDirectoryName(file);
-                        if (Directory.Exists(showFolder) && !Directory.GetFileSystemEntries(showFolder).Any())
-                        {
-                            try
-                            {
-                                Directory.Delete(showFolder);
-                                LogMessage($"Deleted empty temporary folder: {showFolder}");
-                            }
-                            catch (Exception ex)
-                            {
-                                LogMessage($"Failed to delete temporary folder {showFolder}: {ex.Message}");
-                            }
-                        }
-                    }
-
-                    await Task.Delay(10);
+                    LogMessage($"Failed to move {filename} to {finalPath}: {ex.Message}");
+                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Move Error: {filename} to {finalPath}\nException: {ex.Message}\n\n");
+                    if (!isAutomated && IsHandleCreated)
+                        BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to move {filename}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 }
             }
 
-            // Clean up temporary folders if empty
-            foreach (var tempFolder in tempFolders.Values)
+            // Log contents of temp folders for debugging
+            foreach (var folder in tempFolders)
             {
-                if (Directory.Exists(tempFolder) && !Directory.GetFileSystemEntries(tempFolder).Any())
+                var files = Directory.GetFiles(folder.Value, "*.*", SearchOption.AllDirectories);
+                if (files.Any())
                 {
-                    try
-                    {
-                        Directory.Delete(tempFolder);
-                        LogMessage($"Deleted empty temporary folder: {tempFolder}");
-                    }
-                    catch (Exception ex)
-                    {
-                        LogMessage($"Failed to delete temporary folder {tempFolder}: {ex.Message}");
-                    }
+                    LogMessage($"Files in {folder.Key} temp folder ({folder.Value}):");
+                    foreach (var file in files)
+                        LogMessage($"  - {Path.GetFileName(file)}");
+                }
+                else
+                {
+                    LogMessage($"No files in {folder.Key} temp folder ({folder.Value}).");
                 }
             }
 
             LogMessage("Sortarr process completed.");
-            if (!isAutomated)
-                BeginInvoke((SystemAction)(() => MessageBox.Show("Sortarr operation complete. Check filebot_log.txt for details.", "Done", MessageBoxButtons.OK, MessageBoxIcon.Information)));
-        }
+            File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Sortarr process completed.\n\n");
 
-        private void browseTVShowLocationBtn2_Click(object sender, EventArgs e)
-        {
-
+            if (!isAutomated && IsHandleCreated)
+                BeginInvoke((SystemAction)(() => MessageBox.Show("Sortarr process completed!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information)));
         }
     }
 }
