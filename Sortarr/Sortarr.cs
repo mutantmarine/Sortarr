@@ -376,40 +376,24 @@ namespace Sortarr
             sb.AppendLine("<!DOCTYPE html>");
             sb.AppendLine("<html><head><title>Sortarr Configuration</title>");
             sb.AppendLine("<style>");
-            sb.AppendLine("body {");
-            sb.AppendLine("    font-family: Arial, sans-serif;");
-            sb.AppendLine("    margin: 0;");
-            sb.AppendLine("    padding: 40px;");
-            sb.AppendLine("    background-color: #2b2b2b;");
-            sb.AppendLine("    color: #f0f0f0;");
-            sb.AppendLine("}");
-            sb.AppendLine("h1 { color: #ffffff; }");
-            sb.AppendLine("form { max-width: 600px; margin: auto; }");
+            sb.AppendLine("body { font-family: Arial, sans-serif; margin: 0; padding: 30px; background-color: #2b2b2b; color: #f0f0f0; }");
+            sb.AppendLine("h1 { color: #4caf50; text-align: center; }");
+            sb.AppendLine("form { max-width: 800px; margin: auto; }");
             sb.AppendLine("label { display: block; margin: 15px 0 5px; }");
-            sb.AppendLine("input[type=text] {");
-            sb.AppendLine("    width: 100%;");
-            sb.AppendLine("    padding: 10px;");
-            sb.AppendLine("    border: none;");
-            sb.AppendLine("    border-radius: 4px;");
-            sb.AppendLine("    background-color: #444;");
-            sb.AppendLine("    color: #f0f0f0;");
-            sb.AppendLine("}");
-            sb.AppendLine("input[type=submit] {");
-            sb.AppendLine("    margin-top: 20px;");
-            sb.AppendLine("    padding: 12px 24px;");
-            sb.AppendLine("    background-color: #4caf50;");
-            sb.AppendLine("    color: white;");
-            sb.AppendLine("    border: none;");
-            sb.AppendLine("    border-radius: 4px;");
-            sb.AppendLine("    cursor: pointer;");
-            sb.AppendLine("}");
-            sb.AppendLine("input[type=submit]:hover { background-color: #45a049; }");
+            sb.AppendLine("input[type=text], input[type=number] { width: 100%; padding: 10px; border: none; border-radius: 4px; background-color: #444; color: #f0f0f0; }");
+            sb.AppendLine("input[type=submit], button { margin-top: 20px; padding: 12px 24px; background-color: #4caf50; color: white; border: none; border-radius: 4px; cursor: pointer; }");
+            sb.AppendLine("input[type=submit]:hover, button:hover { background-color: #45a049; }");
             sb.AppendLine(".message { color: #80ff80; margin-bottom: 20px; }");
+            sb.AppendLine(".checkbox { margin-right: 10px; }");
             sb.AppendLine("</style></head><body>");
             sb.AppendLine("<h1>Sortarr Configuration</h1>");
             if (!string.IsNullOrEmpty(message))
                 sb.AppendLine($"<p class='message'>{message}</p>");
             sb.AppendLine("<form method='post'>");
+
+            sb.AppendLine("<label>Profile:</label>");
+            sb.AppendLine("<select name='profileSelect'><option value='Default'>Default</option></select>");
+            sb.AppendLine("<button type='button'>Load Profile</button><button type='button'>Save Profile</button><button type='button'>Delete Profile</button>");
 
             sb.AppendLine("<label>FileBot Path:</label>");
             sb.AppendLine($"<input type='text' name='filebotPath' value='{sourceFilebotFolder.Text}'><br>");
@@ -417,26 +401,38 @@ namespace Sortarr
             sb.AppendLine("<label>Downloads Folder:</label>");
             sb.AppendLine($"<input type='text' name='downloadsFolder' value='{sourceDownloadsFolder.Text}'><br>");
 
-            sb.AppendLine("<label>Movies Folder 1 (Default):</label>");
-            sb.AppendLine($"<input type='text' name='hdMovie1' value='{(sourceFolderMovies1.Text == "Default" ? "" : sourceFolderMovies1.Text)}'><br>");
+            sb.AppendLine("<h2>Media Types</h2>");
+            sb.AppendLine("<label><input type='checkbox' name='enableMovies' class='checkbox' checked>Enable Movies</label>");
+            sb.AppendLine("<label><input type='checkbox' name='enable4kMovies' class='checkbox'>Enable 4K Movies</label>");
+            sb.AppendLine("<label><input type='checkbox' name='enableTV' class='checkbox' checked>Enable TV Shows</label>");
+            sb.AppendLine("<label><input type='checkbox' name='enable4kTV' class='checkbox'>Enable 4K TV Shows</label>");
 
-            sb.AppendLine("<label>4K Movies Folder 1 (Default):</label>");
-            sb.AppendLine($"<input type='text' name='4kMovie1' value='{(sourceFolder4kMovies1.Text == "Default" ? "" : sourceFolder4kMovies1.Text)}'><br>");
-
-            sb.AppendLine("<label>TV Shows Folder 1 (Default):</label>");
-            sb.AppendLine($"<input type='text' name='hdTV1' value='{(sourceFolderTVShows1.Text == "Default" ? "" : sourceFolderTVShows1.Text)}'><br>");
-
-            sb.AppendLine("<label>4K TV Shows Folder 1 (Default):</label>");
-            sb.AppendLine($"<input type='text' name='4kTV1' value='{(sourceFolder4kTVShows1.Text == "Default" ? "" : sourceFolder4kTVShows1.Text)}'><br>");
-
-            sb.AppendLine("<label>Override Movies Format:</label>");
+            sb.AppendLine("<h2>Media Directories</h2>");
+            sb.AppendLine($"<label>Movies Folder 1:</label><input type='text' name='hdMovie1' value='{sourceFolderMovies1.Text}'><br>");
+            sb.AppendLine($"<label>4K Movies Folder 1:</label><input type='text' name='4kMovie1' value='{sourceFolder4kMovies1.Text}'><br>");
+            sb.AppendLine($"<label>TV Shows Folder 1:</label><input type='text' name='hdTV1' value='{sourceFolderTVShows1.Text}'><br>");
+            sb.AppendLine($"<label>4K TV Shows Folder 1:</label><input type='text' name='4kTV1' value='{sourceFolder4kTVShows1.Text}'><br>");
+            sb.AppendLine("<h2>Overrides</h2>");
+            sb.AppendLine($"<label>Override Movies Format:</label>");
             sb.AppendLine($"<input type='text' name='overrideMovies' value='{overrideMoviesTextBox.Text}'><br>");
 
-            sb.AppendLine("<label>Override TV Shows Format:</label>");
+            sb.AppendLine($"<label>Override TV Shows Format:</label>");
             sb.AppendLine($"<input type='text' name='overrideTV' value='{overrideTVShowsTextBox.Text}'><br>");
 
-            sb.AppendLine("<input type='submit' value='Save Changes'>");
-            sb.AppendLine("</form></body></html>");
+            sb.AppendLine("<h2>Automation</h2>");
+            sb.AppendLine("<label>Enable Scheduled Task:</label>");
+            sb.AppendLine("<input type='checkbox' name='scheduleEnabled' class='checkbox'><br>");
+            sb.AppendLine("<label>Run every X minutes:</label>");
+            sb.AppendLine("<input type='number' name='scheduleMinutes' value='60' min='1' max='1440'><br>");
+
+            sb.AppendLine("<h2>Remote Access</h2>");
+            sb.AppendLine("<label>Enable Remote Config Server:</label>");
+            sb.AppendLine("<input type='checkbox' name='remoteEnabled' class='checkbox'><br>");
+            sb.AppendLine("<label>Port:</label>");
+            sb.AppendLine($"<input type='number' name='remotePort' value='{sortarrPortTxt.Text}' min='1024' max='65535'><br>");
+            sb.AppendLine("<br><input type='submit' value='Save Changes'>");
+            sb.AppendLine("</form>");
+            sb.AppendLine("</body></html>");
             return sb.ToString();
         }
 
@@ -1049,13 +1045,13 @@ namespace Sortarr
 
         private bool IsTVShow(string filename)
         {
-            string pattern = @"[sS]\d{1,2}[eE]\d{1,2}|[sS]eason\s*\d+.*[eE]pisode\s*\d+|\d{1,2}x\d{1,2}";
+            string pattern = @"[sS]\d{2}[eE]\d{2}";
             return Regex.IsMatch(Path.GetFileNameWithoutExtension(filename), pattern);
         }
 
         private bool Is4K(string filename)
         {
-            string pattern = @"4[kK]|2160[pP]";
+            string pattern = @"2160[pP]";
             return Regex.IsMatch(Path.GetFileNameWithoutExtension(filename), pattern);
         }
 
@@ -1096,7 +1092,18 @@ namespace Sortarr
             }
 
             string tempBasePath = Path.Combine(Application.StartupPath, "FilebotMedia");
-            Directory.CreateDirectory(tempBasePath);
+            try
+            {
+                Directory.CreateDirectory(tempBasePath);
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Failed to create base temporary folder {tempBasePath}: {ex.Message}");
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Temp Base Folder Creation Error: {tempBasePath}\nException: {ex.Message}\n\n");
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to create base temporary folder: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                return;
+            }
 
             var tempFolders = new Dictionary<string, string>
             {
@@ -1107,7 +1114,20 @@ namespace Sortarr
             };
 
             foreach (var folder in tempFolders.Values)
-                Directory.CreateDirectory(folder);
+            {
+                try
+                {
+                    Directory.CreateDirectory(folder);
+                }
+                catch (Exception ex)
+                {
+                    LogMessage($"Failed to create temporary folder {folder}: {ex.Message}");
+                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Temp Folder Creation Error: {folder}\nException: {ex.Message}\n\n");
+                    if (!isAutomated && IsHandleCreated)
+                        BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to create temporary folder {folder}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                    return;
+                }
+            }
 
             var mediaFiles = Directory.GetFiles(downloadsFolder, "*.*", SearchOption.AllDirectories)
                 .Where(f => mediaExtensions.Contains(Path.GetExtension(f).ToLower())).ToList();
@@ -1136,7 +1156,7 @@ namespace Sortarr
                 return;
             }
 
-            // Phase 1: Add New Media
+            // Phase 1: Process media files with FileBot AMC script
             foreach (var file in mediaFiles)
             {
                 string filename = Path.GetFileName(file);
@@ -1171,22 +1191,29 @@ namespace Sortarr
                         ? (is4k ? tempFolders["4KTVShow"] : tempFolders["HDTVShow"])
                         : (is4k ? tempFolders["4KMovie"] : tempFolders["HDMovie"]);
 
-                    LogMessage($"Determined file type: {(isTvShow ? (is4k ? "4K TV Show" : "HD TV Show") : (is4k ? "4K Movie" : "HD Movie"))}, Destination: {tempDest}");
+                    // Verify temporary destination exists
+                    if (!Directory.Exists(tempDest))
+                    {
+                        LogMessage($"Error: Temporary destination folder {tempDest} does not exist.");
+                        File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Temp Folder Missing: {tempDest}\n\n");
+                        if (!isAutomated && IsHandleCreated)
+                            BeginInvoke((SystemAction)(() => MessageBox.Show($"Temporary folder {tempDest} does not exist.\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                        continue;
+                    }
+
+                    LogMessage($"Determined file type: {(isTvShow ? (is4k ? "4K TV Show" : "HD TV Show") : (is4k ? "4K Movie" : "HD Movie"))}, Temporary Destination: {tempDest}");
 
                     var beforeFiles = Directory.GetFiles(tempDest, "*.*", SearchOption.AllDirectories).ToList();
 
-                    string format = isTvShow
-                        ? (checkboxOverrideSortarrParameters.Checked && !string.IsNullOrWhiteSpace(overrideTVShowsTextBox.Text)
-                            ? overrideTVShowsTextBox.Text
-                            : "{n} ({y})\\{n} - S{s.pad(2)}E{e.pad(2)} - {t}")
-                        : (checkboxOverrideSortarrParameters.Checked && !string.IsNullOrWhiteSpace(overrideMoviesTextBox.Text)
-                            ? overrideMoviesTextBox.Text
-                            : "Movies\\{n.colon(' - ')} ({y})");
-                    string db = isTvShow ? "TheTVDB" : "TheMovieDB";
-                    string seriesName = isTvShow ? Path.GetFileNameWithoutExtension(filename).Split('.')[0] : "";
-                    string args = isTvShow
-                        ? $"-rename \"{file}\" --db {db} --format \"{format}\" --output \"{tempDest}\" --action move -non-strict --lang en --def order=airdate" + (string.IsNullOrEmpty(seriesName) ? "" : $" --def series=\"{seriesName}\"")
-                        : $"-rename \"{file}\" --db {db} --format \"{format}\" --output \"{tempDest}\" --action move --lang en";
+                    string movieFormat = checkboxOverrideSortarrParameters.Checked && !string.IsNullOrWhiteSpace(overrideMoviesTextBox.Text)
+                        ? overrideMoviesTextBox.Text
+                        : "Movies\\{n.colon(' - ')} ({y})";
+                    string seriesFormat = checkboxOverrideSortarrParameters.Checked && !string.IsNullOrWhiteSpace(overrideTVShowsTextBox.Text)
+                        ? overrideTVShowsTextBox.Text
+                        : "{n} ({y})\\{n} - {s00e00} - {t}";
+
+                    string args = $"-script fn:amc \"{file}\" --output \"{tempDest}\" --action duplicate -non-strict --log-file amc_{(isTvShow ? "tv" : "movies")}.log --def excludeList=amc.txt --def ut_kind=multi" +
+                        (isTvShow ? $" --def seriesFormat=\"{seriesFormat}\"" : $" --def movieFormat=\"{movieFormat}\"");
 
                     LogMessage($"Executing FileBot command: {filebotPath} {args}");
 
@@ -1232,73 +1259,6 @@ namespace Sortarr
                     if (newFiles.Any())
                     {
                         string newFile = newFiles.First();
-                        // Fallback: Correct episode naming from SE or 1x01 to SxxExx for TV shows
-                        if (isTvShow)
-                        {
-                            string newFileName = Path.GetFileName(newFile);
-                            // Correct year (e.g., 1998 to 1999 for SpongeBob SquarePants)
-                            if (newFileName.Contains("(1998)"))
-                            {
-                                string correctedName = newFileName.Replace("(1998)", "(1999)");
-                                string correctedPath = Path.Combine(Path.GetDirectoryName(newFile), correctedName);
-                                try
-                                {
-                                    File.Move(newFile, correctedPath);
-                                    newFile = correctedPath;
-                                    LogMessage($"Corrected year: {newFileName} to {correctedName}");
-                                }
-                                catch (Exception ex)
-                                {
-                                    LogMessage($"Failed to correct year for {newFileName}: {ex.Message}");
-                                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Year Correction Error: {newFileName}\nException: {ex.Message}\n\n");
-                                }
-                            }
-                            // Correct episode format (e.g., SE or 1x01 to S01E01)
-                            if (Regex.IsMatch(newFileName, @"[sS][eE]\s*-|\d+x\d+"))
-                            {
-                                string correctedName = Regex.Replace(newFileName, @"[sS][eE]\s*-", match =>
-                                {
-                                    var matchInfo = Regex.Match(newFileName, @"[sS](\d{1,2})[eE](\d{1,2})");
-                                    if (matchInfo.Success)
-                                        return $"S{matchInfo.Groups[1].Value.PadLeft(2, '0')}E{matchInfo.Groups[2].Value.PadLeft(2, '0')} - ";
-                                    return match.Value; // Fallback
-                                });
-                                correctedName = Regex.Replace(correctedName, @"(\d+)x(\d+)", "S$1E$2");
-                                string correctedPath = Path.Combine(Path.GetDirectoryName(newFile), correctedName);
-                                try
-                                {
-                                    File.Move(newFile, correctedPath);
-                                    newFile = correctedPath;
-                                    LogMessage($"Corrected episode naming: {newFileName} to {correctedName}");
-                                }
-                                catch (Exception ex)
-                                {
-                                    LogMessage($"Failed to rename {newFileName} to {correctedName}: {ex.Message}");
-                                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Episode Naming Error: {newFileName}\nException: {ex.Message}\n\n");
-                                }
-                            }
-                        }
-                        // Fallback: Ensure colons are replaced with " - " for movies
-                        else
-                        {
-                            string newFileName = Path.GetFileName(newFile);
-                            if (newFileName.Contains(":"))
-                            {
-                                string correctedName = newFileName.Replace(":", " - ");
-                                string correctedPath = Path.Combine(Path.GetDirectoryName(newFile), correctedName);
-                                try
-                                {
-                                    File.Move(newFile, correctedPath);
-                                    newFile = correctedPath;
-                                    LogMessage($"Manually corrected filename: {newFileName} to {correctedName}");
-                                }
-                                catch (Exception ex)
-                                {
-                                    LogMessage($"Failed to rename {newFileName} to {correctedName}: {ex.Message}");
-                                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Filename Correction Error: {newFileName}\nException: {ex.Message}\n\n");
-                                }
-                            }
-                        }
                         fileMappings.Add((Original: file, Renamed: newFile));
                         LogMessage($"Renamed file to: {Path.GetFileName(newFile)}");
                     }
@@ -1317,63 +1277,324 @@ namespace Sortarr
                 }
             }
 
-            // Phase 2: Move files to final destinations
-            foreach (var mapping in fileMappings)
+            // Phase 1.5: Clean up folder names in temp folders (fix cases like "Bluey (2018) (2016)")
+            foreach (var mediaType in tempFolders.Keys.Where(k => k.Contains("TVShow")))
             {
-                string original = mapping.Original;
-                string renamed = mapping.Renamed;
-                string filename = Path.GetFileName(renamed);
-                bool isTvShow = IsTVShow(filename);
-                bool is4k = Is4K(filename);
-                string mediaType = isTvShow ? (is4k ? "4KTVShow" : "HDTVShow") : (is4k ? "4KMovie" : "HDMovie");
+                string tempDest = tempFolders[mediaType];
+                var subfolders = Directory.GetDirectories(tempDest);
+                foreach (var subfolder in subfolders)
+                {
+                    string subfolderName = Path.GetFileName(subfolder);
+                    // Match folder names with multiple years, e.g., "Bluey (2018) (2016)"
+                    string pattern = @"(.+\s\(\d{4}\))\s\(\d{4}\)";
+                    if (Regex.IsMatch(subfolderName, pattern))
+                    {
+                        string newSubfolderName = Regex.Replace(subfolderName, @"\s\(\d{4}\)$", "");
+                        string newSubfolderPath = Path.Combine(tempDest, newSubfolderName);
+                        try
+                        {
+                            Directory.Move(subfolder, newSubfolderPath);
+                            LogMessage($"Cleaned up folder name: {subfolderName} to {newSubfolderName}");
+                            File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Cleaned up folder name: {subfolderName} to {newSubfolderName}\n\n");
+
+                            // Update fileMappings to reflect the new folder path
+                            for (int i = 0; i < fileMappings.Count; i++)
+                            {
+                                if (fileMappings[i].Renamed.StartsWith(subfolder))
+                                {
+                                    fileMappings[i] = (fileMappings[i].Original, fileMappings[i].Renamed.Replace(subfolder, newSubfolderPath));
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            LogMessage($"Failed to rename folder {subfolderName} to {newSubfolderName}: {ex.Message}");
+                            File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Folder Rename Error: {subfolderName} to {newSubfolderName}\nException: {ex.Message}\n\n");
+                            if (!isAutomated && IsHandleCreated)
+                                BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to rename folder {subfolderName}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                        }
+                    }
+                }
+            }
+
+            // Phase 2: Move files/folders to final destinations with duplicate checks
+            foreach (var mediaType in tempFolders.Keys)
+            {
+                string tempDest = tempFolders[mediaType];
                 string[] finalDestinations = GetEnabledDirectories(mediaType);
+                bool isMovie = mediaType.Contains("Movie");
 
                 if (finalDestinations.Length == 0)
                 {
-                    LogMessage($"No valid destination folders for {mediaType}. Skipping move for {filename}.");
-                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] No valid destination folders for {mediaType}. File: {filename}\n\n");
+                    LogMessage($"No valid destination folders for {mediaType}. Skipping move.");
+                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] No valid destination folders for {mediaType}.\n\n");
                     continue;
                 }
 
-                string finalDest = finalDestinations.First();
-                string finalPath = Path.Combine(finalDest, Path.GetFileName(renamed));
+                var files = Directory.GetFiles(tempDest, "*.*", SearchOption.AllDirectories)
+                    .Where(f => mediaExtensions.Contains(Path.GetExtension(f).ToLower())).ToList();
 
-                try
+                foreach (var file in files)
                 {
-                    File.Move(renamed, finalPath);
-                    LogMessage($"Moved {filename} to {finalPath}");
-                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Moved {filename} to {finalPath}\n\n");
-                }
-                catch (Exception ex)
-                {
-                    LogMessage($"Failed to move {filename} to {finalPath}: {ex.Message}");
-                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Move Error: {filename} to {finalPath}\nException: {ex.Message}\n\n");
-                    if (!isAutomated && IsHandleCreated)
-                        BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to move {filename}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                    string filename = Path.GetFileName(file);
+                    string filenameNoExt = Path.GetFileNameWithoutExtension(filename);
+
+                    if (isMovie)
+                    {
+                        // Movies: Check for duplicates in all final destinations
+                        bool foundDuplicate = false;
+                        foreach (var folder in finalDestinations)
+                        {
+                            try
+                            {
+                                var existingFiles = Directory.GetFiles(folder, "*.*", SearchOption.TopDirectoryOnly);
+                                foreach (var existing in existingFiles)
+                                {
+                                    string existingNoExt = Path.GetFileNameWithoutExtension(existing);
+                                    if (string.Equals(existingNoExt, filenameNoExt, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        LogMessage($"Duplicate movie found: {filename} in {folder} - deleting temp file");
+                                        File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Duplicate movie found: {filename} in {folder}\n\n");
+                                        File.Delete(file);
+                                        foundDuplicate = true;
+                                        break;
+                                    }
+                                }
+                                if (foundDuplicate) break;
+                            }
+                            catch (Exception ex)
+                            {
+                                LogMessage($"Error checking duplicates in {folder}: {ex.Message}");
+                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Duplicate Check Error: {folder}\nException: {ex.Message}\n\n");
+                            }
+                        }
+
+                        if (!foundDuplicate)
+                        {
+                            // Move to first available destination
+                            string finalDestRoot = finalDestinations.First();
+                            string finalPath = Path.Combine(finalDestRoot, filename);
+                            try
+                            {
+                                if (File.Exists(finalPath))
+                                {
+                                    File.Delete(finalPath);
+                                    LogMessage($"Deleted existing movie file at {finalPath} to allow overwrite.");
+                                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Deleted existing movie file at {finalPath} to allow overwrite.\n\n");
+                                }
+                                if (!File.Exists(file))
+                                {
+                                    LogMessage($"Error: Source file {file} not found for moving to {finalPath}.");
+                                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Move Error: Source file {file} not found.\n\n");
+                                    if (!isAutomated && IsHandleCreated)
+                                        BeginInvoke((SystemAction)(() => MessageBox.Show($"Source file {file} not found for moving.\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                                    continue;
+                                }
+                                File.Move(file, finalPath);
+                                LogMessage($"Moved movie {filename} to {finalPath}");
+                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Moved movie {filename} to {finalPath}\n\n");
+                            }
+                            catch (Exception ex)
+                            {
+                                LogMessage($"Failed to move movie {filename} to {finalPath}: {ex.Message}");
+                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Movie Move Error: {filename} to {finalPath}\nException: {ex.Message}\n\n");
+                                if (!isAutomated && IsHandleCreated)
+                                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to move movie {filename}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // TV Shows: Match base folder name
+                        string showFolderName = Path.GetFileName(Path.GetDirectoryName(file));
+                        bool matchFound = false;
+
+                        foreach (var folder in finalDestinations)
+                        {
+                            try
+                            {
+                                var existingFolders = Directory.GetDirectories(folder);
+                                foreach (var existing in existingFolders)
+                                {
+                                    if (string.Equals(Path.GetFileName(existing), showFolderName, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        string finalPath = Path.Combine(existing, filename);
+                                        try
+                                        {
+                                            if (File.Exists(finalPath))
+                                            {
+                                                File.Delete(finalPath);
+                                                LogMessage($"Deleted existing TV show file at {finalPath} to allow overwrite.");
+                                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Deleted existing TV show file at {finalPath} to allow overwrite.\n\n");
+                                            }
+                                            if (!File.Exists(file))
+                                            {
+                                                LogMessage($"Error: Source file {file} not found for moving to {finalPath}.");
+                                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Move Error: Source file {file} not found.\n\n");
+                                                if (!isAutomated && IsHandleCreated)
+                                                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Source file {file} not found for moving.\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                                                continue;
+                                            }
+                                            File.Move(file, finalPath);
+                                            LogMessage($"Moved TV show file {filename} to existing folder {finalPath}");
+                                            File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Moved TV show file {filename} to {finalPath}\n\n");
+                                            matchFound = true;
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            LogMessage($"Failed to move TV show file {filename} to {finalPath}: {ex.Message}");
+                                            File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] TV Show Move Error: {filename} to {finalPath}\nException: {ex.Message}\n\n");
+                                            if (!isAutomated && IsHandleCreated)
+                                                BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to move TV show file {filename}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                                        }
+                                        break;
+                                    }
+                                }
+                                if (matchFound) break;
+                            }
+                            catch (Exception ex)
+                            {
+                                LogMessage($"Error checking TV show folders in {folder}: {ex.Message}");
+                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] TV Show Folder Check Error: {folder}\nException: {ex.Message}\n\n");
+                            }
+                        }
+
+                        if (!matchFound)
+                        {
+                            // Create new folder in first available destination
+                            string finalDestRoot = finalDestinations.First();
+                            string newShowPath = Path.Combine(finalDestRoot, showFolderName);
+                            string finalPath = Path.Combine(newShowPath, filename);
+                            try
+                            {
+                                if (!Directory.Exists(newShowPath))
+                                {
+                                    Directory.CreateDirectory(newShowPath);
+                                    LogMessage($"Created new TV show folder: {newShowPath}");
+                                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Created new TV show folder: {newShowPath}\n\n");
+                                }
+                                if (File.Exists(finalPath))
+                                {
+                                    File.Delete(finalPath);
+                                    LogMessage($"Deleted existing TV show file at {finalPath} to allow overwrite.");
+                                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Deleted existing TV show file at {finalPath} to allow overwrite.\n\n");
+                                }
+                                if (!File.Exists(file))
+                                {
+                                    LogMessage($"Error: Source file {file} not found for moving to {finalPath}.");
+                                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Move Error: Source file {file} not found.\n\n");
+                                    if (!isAutomated && IsHandleCreated)
+                                        BeginInvoke((SystemAction)(() => MessageBox.Show($"Source file {file} not found for moving.\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                                    continue;
+                                }
+                                File.Move(file, finalPath);
+                                LogMessage($"Moved TV show file {filename} to new folder {finalPath}");
+                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Moved TV show file {filename} to {finalPath}\n\n");
+                            }
+                            catch (Exception ex)
+                            {
+                                LogMessage($"Failed to move TV show file {filename} to {finalPath}: {ex.Message}");
+                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] TV Show Move Error: {filename} to {finalPath}\nException: {ex.Message}\n\n");
+                                if (!isAutomated && IsHandleCreated)
+                                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to move TV show file {filename}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                            }
+                        }
+                    }
                 }
             }
 
-            // Log contents of temp folders for debugging
-            foreach (var folder in tempFolders)
+            // Phase 3: Clean up original media files and empty folders in downloads folder
+            try
             {
-                var files = Directory.GetFiles(folder.Value, "*.*", SearchOption.AllDirectories);
-                if (files.Any())
+                LogMessage("Cleaning up original media files and empty folders in downloads folder...");
+                if (!Directory.Exists(sourceDownloadsFolder.Text))
                 {
-                    LogMessage($"Files in {folder.Key} temp folder ({folder.Value}):");
-                    foreach (var file in files)
-                        LogMessage($"  - {Path.GetFileName(file)}");
+                    LogMessage($"Downloads folder not found: {sourceDownloadsFolder.Text}");
+                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Downloads Folder Not Found: {sourceDownloadsFolder.Text}\n\n");
+                    if (!isAutomated && IsHandleCreated)
+                        BeginInvoke((SystemAction)(() => MessageBox.Show($"Downloads folder not found: {sourceDownloadsFolder.Text}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 }
                 else
                 {
-                    LogMessage($"No files in {folder.Key} temp folder ({folder.Value}).");
+                    // Delete media files in downloads folder
+                    foreach (string mediaFile in Directory.GetFiles(sourceDownloadsFolder.Text, "*.*", SearchOption.AllDirectories)
+                        .Where(f => mediaExtensions.Contains(Path.GetExtension(f).ToLower())))
+                    {
+                        try
+                        {
+                            // Check if this file was processed (in fileMappings)
+                            if (fileMappings.Any(m => m.Original == mediaFile))
+                            {
+                                File.Delete(mediaFile);
+                                LogMessage($"Deleted original media file: {mediaFile}");
+                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Deleted original media file: {mediaFile}\n\n");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            LogMessage($"Failed to delete original media file {mediaFile}: {ex.Message}");
+                            File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Delete Error: {mediaFile}\nException: {ex.Message}\n\n");
+                            if (!isAutomated && IsHandleCreated)
+                                BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to delete original media file {mediaFile}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                        }
+                    }
+
+                    // Delete empty folders recursively (bottom-up)
+                    foreach (string dir in Directory.GetDirectories(sourceDownloadsFolder.Text, "*", SearchOption.AllDirectories)
+                        .OrderByDescending(d => d.Length))
+                    {
+                        try
+                        {
+                            if (!Directory.GetFiles(dir, "*", SearchOption.AllDirectories).Any() &&
+                                !Directory.GetDirectories(dir, "*", SearchOption.AllDirectories).Any())
+                            {
+                                Directory.Delete(dir, true);
+                                LogMessage($"Deleted empty folder: {dir}");
+                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Deleted empty folder: {dir}\n\n");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            LogMessage($"Failed to delete empty folder {dir}: {ex.Message}");
+                            File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Empty Folder Delete Error: {dir}\nException: {ex.Message}\n\n");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"Failed to clean up downloads folder: {ex.Message}");
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Downloads Cleanup Error: {ex.Message}\n\n");
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to clean up downloads folder: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+            }
+
+            // Phase 4: Clean up temporary folders
+            foreach (var folder in tempFolders.Values)
+            {
+                try
+                {
+                    if (Directory.Exists(folder) && !Directory.GetFiles(folder, "*.*", SearchOption.AllDirectories).Any())
+                    {
+                        Directory.Delete(folder, true);
+                        LogMessage($"Cleaned up empty temporary folder: {folder}");
+                        File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Cleaned up empty temporary folder: {folder}\n\n");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogMessage($"Failed to clean up temporary folder {folder}: {ex.Message}");
+                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Temp Folder Cleanup Error: {folder}\nException: {ex.Message}\n\n");
+                    if (!isAutomated && IsHandleCreated)
+                        BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to clean up temporary folder {folder}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 }
             }
 
+            // Finalize
             LogMessage("Sortarr process completed.");
             File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Sortarr process completed.\n\n");
-
             if (!isAutomated && IsHandleCreated)
-                BeginInvoke((SystemAction)(() => MessageBox.Show("Sortarr process completed!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information)));
+                BeginInvoke((SystemAction)(() => MessageBox.Show("Sortarr process completed successfully.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information)));
         }
     }
 }
