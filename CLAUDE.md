@@ -16,6 +16,9 @@ msbuild Sortarr.sln /p:Configuration=Debug
 
 # Or use Visual Studio to build (recommended)
 # Open Sortarr.sln in Visual Studio and build via IDE
+
+# Note: Solution includes installer project (SortarrSetup.vdproj)
+# Installer builds only in Release configuration
 ```
 
 ### Running the Application
@@ -114,9 +117,12 @@ List<(string Original, string Renamed)>
 
 - **Single Project Solution**: Contains main application plus installer project (SortarrSetup)
 - **Windows Forms Designer**: UI defined in `Sortarr.Designer.cs` (extensive control definitions)
-- **Resource Files**: Includes favicon.ico, HTML/JS files for web interface
-- **Batch Scripts**: `run_sortarr.bat` for easy automated execution
+- **Resource Files**: Includes favicon.ico, HTML/JS files for web interface (`index.html`, `sortarr.js`)
+- **Batch Scripts**: `run_sortarr.bat` for easy automated execution (copied to output directory)
 - **Package Dependencies**: Modern .NET libraries backported to .NET Framework 4.7.2
+  - Microsoft.Win32.TaskScheduler (2.12.1) for Windows Task Scheduler integration
+  - System.Text.Json (9.0.7) for JSON operations
+  - Various System.* packages for modern async/await support
 
 ## Development Considerations
 

@@ -28,9 +28,73 @@ namespace Sortarr
         private Dictionary<string, (CheckBox CheckBox, NumericUpDown UpDown, TextBox[] TextBoxes, Button[] BrowseButtons, Label LocationLabel)> mediaControls;
         // List of Advanced tab checkboxes
         private CheckBox[] advancedCheckboxes;
+        // Logger instance
+        private BufferedLogger logger;
+
+        // Buffered logging class to optimize file I/O operations
+        private class BufferedLogger : IDisposable
+        {
+            private readonly StreamWriter writer;
+            private readonly object lockObj = new object();
+            private string cachedTimestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            private DateTime lastTimestampUpdate = DateTime.Now;
+
+            public BufferedLogger(string filePath)
+            {
+                writer = new StreamWriter(filePath, append: true, encoding: Encoding.UTF8) { AutoFlush = false };
+            }
+
+            public string GetTimestamp()
+            {
+                var now = DateTime.Now;
+                if ((now - lastTimestampUpdate).TotalSeconds >= 1)
+                {
+                    cachedTimestamp = now.ToString("yyyy-MM-dd HH:mm:ss");
+                    lastTimestampUpdate = now;
+                }
+                return cachedTimestamp;
+            }
+
+            public void Log(string message)
+            {
+                lock (lockObj)
+                {
+                    writer.WriteLine($"[{GetTimestamp()}] {message}");
+                }
+            }
+
+            public void LogError(string context, string error)
+            {
+                lock (lockObj)
+                {
+                    writer.WriteLine($"[{GetTimestamp()}] {context}\nException: {error}");
+                    writer.WriteLine();
+                }
+            }
+
+            public void Flush()
+            {
+                lock (lockObj)
+                {
+                    writer?.Flush();
+                }
+            }
+
+            public void Dispose()
+            {
+                lock (lockObj)
+                {
+                    writer?.Flush();
+                    writer?.Dispose();
+                }
+            }
+        }
 
         public Sortarr()
         {
+            // Initialize logger first
+            logger = new BufferedLogger(logFilePath);
+
             // Check for command-line arguments early
             string[] args = Environment.GetCommandLineArgs();
             isAutomated = args.Contains("--auto");
@@ -142,8 +206,8 @@ namespace Sortarr
                 var profiles = Directory.GetFiles(profilePath, "*.txt").Select(Path.GetFileNameWithoutExtension).OrderBy(p => p).ToList();
                 if (!profiles.Any())
                 {
-                    LogMessage("Error: No profiles found for automated mode.");
-                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: No profiles found for automated mode.\n\n");
+                    LogError("No profiles found for automated mode", "");
+                    logger?.Flush(); // Ensure log is written before exit
                     await Task.Delay(1000); // Allow logging
                     Application.Exit();
                     return;
@@ -156,8 +220,8 @@ namespace Sortarr
                 // Validate inputs
                 if (!ValidateInputs())
                 {
-                    LogMessage("Error: Validation failed for automated mode. Check profile settings.");
-                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: Validation failed for automated mode. Check profile settings in {profileSelector.Text}.txt\n\n");
+                    LogError($"Validation failed for automated mode. Check profile settings in {profileSelector.Text}.txt", "");
+                    logger?.Flush(); // Ensure log is written before exit
                     await Task.Delay(1000); // Allow logging
                     StopHttpServer();
                     Application.Exit();
@@ -174,8 +238,8 @@ namespace Sortarr
             }
             catch (Exception ex)
             {
-                LogMessage($"Automated mode error: {ex.Message}");
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Automated Mode Error: {ex.Message}\n\n");
+                LogError("Automated mode error", ex);
+                logger?.Flush(); // Ensure log is written before exit
                 await Task.Delay(1000);
                 Application.Exit();
             }
@@ -291,6 +355,18 @@ namespace Sortarr
 
             try
             {
+                // Clean up any existing listener first
+                if (httpListener != null)
+                {
+                    try
+                    {
+                        httpListener.Stop();
+                        httpListener.Close();
+                    }
+                    catch (ObjectDisposedException) { }
+                    httpListener = null;
+                }
+
                 httpListener = new HttpListener();
                 httpListener.Prefixes.Add("http://localhost:6969/");
                 httpListener.Start();
@@ -300,37 +376,48 @@ namespace Sortarr
             }
             catch (Exception ex)
             {
-                LogMessage($"Failed to start HTTP server: {ex.Message}");
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] HTTP Server Error: {ex.Message}\n\n");
-                if (!isAutomated && IsHandleCreated)
-                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to start HTTP server: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                LogError("Failed to start HTTP server", ex);
+                ShowErrorMessage($"Failed to start HTTP server: {ex.Message}");
                 checkboxEnableRemoteConfig.Checked = false;
+                httpListener = null;
+                isServerRunning = false;
             }
         }
 
         private void StopHttpServer()
         {
-            if (!isServerRunning) return;
+            if (!isServerRunning || httpListener == null) return;
 
             try
             {
-                httpListener.Stop();
-                httpListener.Close();
-                isServerRunning = false;
+                isServerRunning = false; // Set flag first to stop the loop
+
+                // Give the async loop time to exit gracefully
+                System.Threading.Thread.Sleep(100);
+
+                if (httpListener != null)
+                {
+                    httpListener.Stop();
+                    httpListener.Close();
+                    httpListener = null;
+                }
                 LogMessage("HTTP server stopped.");
+            }
+            catch (ObjectDisposedException)
+            {
+                // HTTP listener was already disposed, which is fine
+                LogMessage("HTTP server stopped (already disposed).");
             }
             catch (Exception ex)
             {
-                LogMessage($"Failed to stop HTTP server: {ex.Message}");
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] HTTP Server Error: {ex.Message}\n\n");
-                if (!isAutomated && IsHandleCreated)
-                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to stop HTTP server: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                LogError("Failed to stop HTTP server", ex);
+                ShowErrorMessage($"Failed to stop HTTP server: {ex.Message}");
             }
         }
 
         private async void HandleHttpRequests()
         {
-            while (isServerRunning)
+            while (isServerRunning && httpListener != null)
             {
                 try
                 {
@@ -362,10 +449,19 @@ namespace Sortarr
 
                     response.Close();
                 }
+                catch (ObjectDisposedException)
+                {
+                    // HttpListener was disposed, exit loop gracefully
+                    break;
+                }
+                catch (HttpListenerException)
+                {
+                    // HttpListener was stopped, exit loop gracefully
+                    break;
+                }
                 catch (Exception ex)
                 {
-                    LogMessage($"HTTP request error: {ex.Message}");
-                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] HTTP Request Error: {ex.Message}\n\n");
+                    LogError("HTTP request error", ex);
                 }
             }
         }
@@ -475,8 +571,7 @@ namespace Sortarr
             }
             catch (Exception ex)
             {
-                LogMessage($"Error checking scheduled task: {ex.Message}");
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Task Check Error: {ex.Message}\n\n");
+                LogError("Error checking scheduled task", ex);
                 return false;
             }
         }
@@ -489,10 +584,8 @@ namespace Sortarr
                 if (!Directory.GetFiles(profilePath, "*.txt").Any())
                 {
                     string errorMessage = "Cannot create scheduled task: No profiles found. Please save a profile first.";
-                    LogMessage(errorMessage);
-                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Task Creation Error: {errorMessage}\n\n");
-                    if (!isAutomated && IsHandleCreated)
-                        BeginInvoke((SystemAction)(() => MessageBox.Show(errorMessage, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                    LogError("Task Creation Error", errorMessage);
+                    ShowErrorMessage(errorMessage);
                     return;
                 }
 
@@ -506,18 +599,15 @@ namespace Sortarr
                 if (!isElevated)
                 {
                     string errorMessage = "Sortarr must be run as administrator to create scheduled tasks.";
-                    LogMessage(errorMessage);
-                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Task Creation Error: {errorMessage}\n\n");
-                    if (!isAutomated && IsHandleCreated)
-                        BeginInvoke((SystemAction)(() => MessageBox.Show($"{errorMessage}\nRight-click Sortarr.exe and select 'Run as administrator'.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                    LogError("Task Creation Error", errorMessage);
+                    ShowErrorMessage(errorMessage, "Right-click Sortarr.exe and select 'Run as administrator'.");
                     return;
                 }
 
                 if (IsTaskScheduled())
                 {
                     LogMessage("Scheduled task 'Sortarr_AutoSort' already exists.");
-                    if (!isAutomated && IsHandleCreated)
-                        BeginInvoke((SystemAction)(() => MessageBox.Show("A scheduled task already exists. Remove it first to create a new one.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning)));
+                    ShowWarningMessage("A scheduled task already exists. Remove it first to create a new one.");
                     return;
                 }
 
@@ -544,8 +634,7 @@ namespace Sortarr
                     ts.RootFolder.RegisterTaskDefinition("Sortarr_AutoSort", td);
 
                     LogMessage($"Scheduled task 'Sortarr_AutoSort' created to run every {numericUpDownSchedule.Value} minute(s) indefinitely, starting now.");
-                    if (!isAutomated && IsHandleCreated)
-                        BeginInvoke((SystemAction)(() => MessageBox.Show($"Scheduled task created to run Sortarr every {numericUpDownSchedule.Value} minute(s) indefinitely, starting now.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information)));
+                    ShowSuccessMessage($"Scheduled task created to run Sortarr every {numericUpDownSchedule.Value} minute(s) indefinitely, starting now.");
 
                     automateBtn.Enabled = false;
                     removeSortarrAutomation.Enabled = true;
@@ -555,10 +644,8 @@ namespace Sortarr
             catch (Exception ex)
             {
                 string errorMessage = $"Failed to create scheduled task: {ex.Message}\nEnsure Sortarr is running as administrator.";
-                LogMessage(errorMessage);
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Scheduled Task Creation Error: {ex.Message}\n\n");
-                if (!isAutomated && IsHandleCreated)
-                    BeginInvoke((SystemAction)(() => MessageBox.Show($"{errorMessage}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                LogError("Scheduled Task Creation Error", ex);
+                ShowErrorMessage(errorMessage, $"Check {logFilePath} for details.");
             }
         }
 
@@ -621,19 +708,17 @@ namespace Sortarr
         {
             try
             {
-                Process.Start(new ProcessStartInfo
+                using (Process.Start(new ProcessStartInfo
                 {
                     FileName = "https://www.paypal.com/donate/?business=WBHFP3TMYUHS8&amount=5&no_recurring=1&item_name=Thank+you+for+trying+my+program.+It+took+many+hours+and+late+nights+to+get+it+up+and+running.+Your+donations+are+appreciated%21¤cy_code=USD",
                     UseShellExecute = true
-                });
+                })) { }
                 LogMessage("Opened donation link: https://www.paypal.com");
             }
             catch (Exception ex)
             {
-                LogMessage($"Failed to open donation link: {ex.Message}");
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Donation Link Error: {ex.Message}\n\n");
-                if (!isAutomated && IsHandleCreated)
-                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to open donation link: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                LogError("Failed to open donation link", ex);
+                ShowErrorMessage($"Failed to open donation link: {ex.Message}");
             }
         }
 
@@ -641,19 +726,17 @@ namespace Sortarr
         {
             try
             {
-                Process.Start(new ProcessStartInfo
+                using (Process.Start(new ProcessStartInfo
                 {
                     FileName = "http://localhost:6969/",
                     UseShellExecute = true
-                });
+                })) { }
                 LogMessage("Opened localhost: http://localhost:6969/");
             }
             catch (Exception ex)
             {
-                LogMessage($"Failed to open localhost: {ex.Message}");
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Localhost Error: {ex.Message}\n\n");
-                if (!isAutomated && IsHandleCreated)
-                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to open http://localhost:6969/: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                LogError("Failed to open localhost", ex);
+                ShowErrorMessage($"Failed to open http://localhost:6969/: {ex.Message}");
             }
         }
 
@@ -796,42 +879,104 @@ namespace Sortarr
 
         private void LogMessage(string message)
         {
+            // Log to file using buffered logger
+            logger?.Log(message);
+            logger?.Log(""); // Add blank line for readability
+
+            // Update UI if not in automated mode
             if (!isAutomated && IsHandleCreated)
             {
                 BeginInvoke((SystemAction)(() =>
                 {
-                    logBox.Items.Add($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}");
+                    logBox.Items.Add($"[{logger.GetTimestamp()}] {message}");
                     logBox.TopIndex = logBox.Items.Count - 1;
                 }));
             }
-            File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}\n\n");
         }
 
-        private void browseFilebotLocationBtn_Click(object sender, EventArgs e)
+        private void LogError(string context, Exception ex)
+        {
+            string message = $"Error: {context}";
+            LogMessage(message);
+            logger?.LogError(context, ex.Message);
+        }
+
+        private void LogError(string context, string error)
+        {
+            string message = $"Error: {context}";
+            LogMessage(message);
+            logger?.LogError(context, error);
+        }
+
+        // Helper methods for UI operations
+        private void ShowErrorMessage(string message, string details = null)
+        {
+            if (!isAutomated && IsHandleCreated)
+            {
+                string fullMessage = string.IsNullOrEmpty(details) ? message : $"{message}\n{details}";
+                BeginInvoke((SystemAction)(() => MessageBox.Show(fullMessage, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
+            }
+        }
+
+        private void ShowWarningMessage(string message)
+        {
+            if (!isAutomated && IsHandleCreated)
+            {
+                BeginInvoke((SystemAction)(() => MessageBox.Show(message, "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning)));
+            }
+        }
+
+        private void ShowInfoMessage(string message)
+        {
+            if (!isAutomated && IsHandleCreated)
+            {
+                BeginInvoke((SystemAction)(() => MessageBox.Show(message, "Info", MessageBoxButtons.OK, MessageBoxIcon.Information)));
+            }
+        }
+
+        private void ShowSuccessMessage(string message)
+        {
+            if (!isAutomated && IsHandleCreated)
+            {
+                BeginInvoke((SystemAction)(() => MessageBox.Show(message, "Success", MessageBoxButtons.OK, MessageBoxIcon.Information)));
+            }
+        }
+
+        // Generic browse handlers
+        private void BrowseForFile(TextBox targetTextBox, string filter = "All Files (*.*)|*.*")
         {
             using (OpenFileDialog dialog = new OpenFileDialog())
             {
-                dialog.Filter = "Executable files (*.exe)|*.exe";
+                dialog.Filter = filter;
                 if (dialog.ShowDialog() == DialogResult.OK)
-                    sourceFilebotFolder.Text = dialog.FileName;
+                    targetTextBox.Text = dialog.FileName;
             }
             ValidateSetup();
         }
 
-        private void browseDownloadsLocationBtn_Click(object sender, EventArgs e)
-        {
-            BrowseFolderIntoTextBox(sourceDownloadsFolder);
-            ValidateSetup();
-        }
-
-        private void BrowseFolderIntoTextBox(TextBox targetBox)
+        private void BrowseForFolder(TextBox targetTextBox)
         {
             using (FolderBrowserDialog dialog = new FolderBrowserDialog())
             {
                 if (dialog.ShowDialog() == DialogResult.OK)
-                    targetBox.Text = dialog.SelectedPath;
+                    targetTextBox.Text = dialog.SelectedPath;
             }
             ValidateSetup();
+        }
+
+        private void browseFilebotLocationBtn_Click(object sender, EventArgs e)
+        {
+            BrowseForFile(sourceFilebotFolder, "Executable files (*.exe)|*.exe");
+        }
+
+        private void browseDownloadsLocationBtn_Click(object sender, EventArgs e)
+        {
+            BrowseForFolder(sourceDownloadsFolder);
+        }
+
+        private void BrowseFolderIntoTextBox(TextBox targetBox)
+        {
+            BrowseForFolder(targetBox);
         }
 
         private void saveProfileBtn_Click(object sender, EventArgs e)
@@ -1145,12 +1290,13 @@ namespace Sortarr
 
             try
             {
-                File.WriteAllText(logFilePath, $"FileBot Log - {DateTime.Now}\n\n");
+                // Initialize new log session
+                logger?.Log($"FileBot Log - {DateTime.Now}");
+                logger?.Log("");
             }
             catch (Exception ex)
             {
-                LogMessage($"Failed to initialize log file: {ex.Message}");
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Failed to initialize log file: {ex.Message}\n\n");
+                LogError("Failed to initialize log file", ex);
                 if (!isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to initialize log file: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 return;
@@ -1239,7 +1385,12 @@ namespace Sortarr
                         proc.WaitForExit();
                         exitCode = proc.ExitCode;
 
-                        File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] File: {filename}\nCommand: {filebotPath} {args}\nOutput: {output}\nError: {error}\nExitCode: {exitCode}\n\n");
+                        logger?.Log($"File: {filename}");
+                        logger?.Log($"Command: {filebotPath} {args}");
+                        logger?.Log($"Output: {output}");
+                        logger?.Log($"Error: {error}");
+                        logger?.Log($"ExitCode: {exitCode}");
+                        logger?.Log("");
                     }
 
                     if (exitCode != 0)
@@ -1592,9 +1743,23 @@ namespace Sortarr
 
             // Finalize
             LogMessage("Sortarr process completed.");
-            File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Sortarr process completed.\n\n");
+            logger?.Flush(); // Ensure all logs are written
             if (!isAutomated && IsHandleCreated)
                 BeginInvoke((SystemAction)(() => MessageBox.Show("Sortarr process completed successfully.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information)));
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                // Stop HTTP server properly before disposal
+                StopHttpServer();
+
+                // Dispose logger
+                logger?.Flush();
+                logger?.Dispose();
+            }
+            base.Dispose(disposing);
         }
     }
 }

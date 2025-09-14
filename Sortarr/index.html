@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sortarr Remote Configuration</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 30px;
+            background-color: #2b2b2b;
+            color: #f0f0f0;
+        }
+        h1 {
+            color: #4caf50;
+            text-align: center;
+        }
+        .container {
+            max-width: 800px;
+            margin: auto;
+        }
+        .status {
+            padding: 20px;
+            background-color: #333;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .message {
+            color: #80ff80;
+            margin-bottom: 20px;
+        }
+        a {
+            color: #4caf50;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Sortarr Remote Configuration</h1>
+        <div class="status">
+            <h2>Configuration Server Active</h2>
+            <p>This page is served by the Sortarr application's built-in HTTP server.</p>
+            <p>The actual configuration interface is generated dynamically by the application.</p>
+            <p><a href="/">← Back to Configuration</a></p>
+        </div>
+        <div class="message">
+            <p><strong>Note:</strong> If you're seeing this static page, the dynamic configuration handler may not be responding. Please check that:</p>
+            <ul>
+                <li>Sortarr application is running</li>
+                <li>Remote configuration is enabled in the Advanced tab</li>
+                <li>No firewall is blocking port 6969</li>
+            </ul>
+        </div>
+    </div>
+    <script src="sortarr.js"></script>
+</body>
+</html>
