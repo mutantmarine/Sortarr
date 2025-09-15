@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sortarr Remote Configuration</title>
+    <link rel="stylesheet" href="sortarr-web.css">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎬 Sortarr Remote Configuration</h1>
+            <div class="status-indicator" id="statusIndicator">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">Ready</span>
+            </div>
+        </header>
+
+        <!-- Tab Navigation -->
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="main">Main</button>
+            <button class="tab-btn" data-tab="setup">Setup</button>
+            <button class="tab-btn" data-tab="advanced">Advanced</button>
+            <button class="tab-btn" data-tab="instructions">Instructions</button>
+        </nav>
+
+        <!-- Main Tab -->
+        <div class="tab-content active" id="main-tab">
+            <div class="section">
+                <h2>Profile Management</h2>
+                <div class="profile-controls">
+                    <select id="profileSelect" class="profile-dropdown">
+                        <option value="">Select Profile...</option>
+                    </select>
+                    <button id="loadProfileBtn" class="btn btn-secondary">Load</button>
+                    <button id="saveProfileBtn" class="btn btn-secondary">Save</button>
+                    <button id="deleteProfileBtn" class="btn btn-danger">Delete</button>
+                    <input type="text" id="newProfileName" placeholder="New profile name..." class="profile-input">
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Operations</h2>
+                <div class="operation-controls">
+                    <button id="runSortarrBtn" class="btn btn-primary btn-large">▶️ Run Sortarr</button>
+                    <button id="stopSortarrBtn" class="btn btn-danger btn-large" style="display: none;">⏹️ Stop Process</button>
+                    <div class="progress-container" id="progressContainer" style="display: none;">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill"></div>
+                        </div>
+                        <span class="progress-text" id="progressText">0%</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Activity Log</h2>
+                <div class="log-controls">
+                    <button id="clearLogBtn" class="btn btn-secondary">Clear Log</button>
+                    <button id="refreshLogBtn" class="btn btn-secondary">Refresh</button>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="autoRefreshLog" checked>
+                        Auto-refresh
+                    </label>
+                </div>
+                <div class="log-container" id="logContainer">
+                    <div class="log-content" id="logContent">
+                        <div class="log-entry">Welcome to Sortarr Remote Configuration</div>
+                        <div class="log-entry">Server status: Ready</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Setup Tab -->
+        <div class="tab-content" id="setup-tab">
+            <div class="section">
+                <h2>FileBot Configuration</h2>
+                <div class="input-group">
+                    <label for="filebotPath">FileBot Executable Path:</label>
+                    <div class="path-input-group">
+                        <input type="text" id="filebotPath" placeholder="Select FileBot executable...">
+                        <button class="btn btn-browse" onclick="browseFile('filebotPath')">Browse</button>
+                    </div>
+                    <small class="help-text">Path to FileBot.exe or filebot script</small>
+                </div>
+
+                <div class="input-group">
+                    <label for="downloadsFolder">Downloads Folder:</label>
+                    <div class="path-input-group">
+                        <input type="text" id="downloadsFolder" placeholder="Select downloads folder...">
+                        <button class="btn btn-browse" onclick="browseFolder('downloadsFolder')">Browse</button>
+                    </div>
+                    <small class="help-text">Folder containing media files to process</small>
+                </div>
+            </div>
+
+            <!-- HD Movies Section -->
+            <div class="section">
+                <h2>HD Movies</h2>
+                <div class="media-type-config">
+                    <div class="config-header">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="enableHDMovies">
+                            Enable HD Movies Processing
+                        </label>
+                        <div class="folder-count">
+                            <label for="hdMovieCount">Number of folders:</label>
+                            <select id="hdMovieCount" onchange="updateFolderInputs('hdMovies', this.value)">
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                                <option value="4">4</option>
+                                <option value="5">5</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="hdMovieFolders" class="folder-inputs">
+                        <div class="input-group">
+                            <label>HD Movies Folder 1:</label>
+                            <div class="path-input-group">
+                                <input type="text" id="hdMovieFolder1" placeholder="Select destination folder...">
+                                <button class="btn btn-browse" onclick="browseFolder('hdMovieFolder1')">Browse</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4K Movies Section -->
+            <div class="section">
+                <h2>4K Movies</h2>
+                <div class="media-type-config">
+                    <div class="config-header">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="enable4KMovies">
+                            Enable 4K Movies Processing
+                        </label>
+                        <div class="folder-count">
+                            <label for="movieCount4K">Number of folders:</label>
+                            <select id="movieCount4K" onchange="updateFolderInputs('4kMovies', this.value)">
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                                <option value="4">4</option>
+                                <option value="5">5</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="4kMovieFolders" class="folder-inputs">
+                        <div class="input-group">
+                            <label>4K Movies Folder 1:</label>
+                            <div class="path-input-group">
+                                <input type="text" id="4kMovieFolder1" placeholder="Select destination folder...">
+                                <button class="btn btn-browse" onclick="browseFolder('4kMovieFolder1')">Browse</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- HD TV Shows Section -->
+            <div class="section">
+                <h2>HD TV Shows</h2>
+                <div class="media-type-config">
+                    <div class="config-header">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="enableHDTV">
+                            Enable HD TV Shows Processing
+                        </label>
+                        <div class="folder-count">
+                            <label for="hdTVCount">Number of folders:</label>
+                            <select id="hdTVCount" onchange="updateFolderInputs('hdTV', this.value)">
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                                <option value="4">4</option>
+                                <option value="5">5</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="hdTVFolders" class="folder-inputs">
+                        <div class="input-group">
+                            <label>HD TV Shows Folder 1:</label>
+                            <div class="path-input-group">
+                                <input type="text" id="hdTVFolder1" placeholder="Select destination folder...">
+                                <button class="btn btn-browse" onclick="browseFolder('hdTVFolder1')">Browse</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4K TV Shows Section -->
+            <div class="section">
+                <h2>4K TV Shows</h2>
+                <div class="media-type-config">
+                    <div class="config-header">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="enable4KTV">
+                            Enable 4K TV Shows Processing
+                        </label>
+                        <div class="folder-count">
+                            <label for="tvCount4K">Number of folders:</label>
+                            <select id="tvCount4K" onchange="updateFolderInputs('4kTV', this.value)">
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                                <option value="4">4</option>
+                                <option value="5">5</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="4kTVFolders" class="folder-inputs">
+                        <div class="input-group">
+                            <label>4K TV Shows Folder 1:</label>
+                            <div class="path-input-group">
+                                <input type="text" id="4kTVFolder1" placeholder="Select destination folder...">
+                                <button class="btn btn-browse" onclick="browseFolder('4kTVFolder1')">Browse</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <button id="saveConfigBtn" class="btn btn-primary btn-large">💾 Save Configuration</button>
+            </div>
+        </div>
+
+        <!-- Advanced Tab -->
+        <div class="tab-content" id="advanced-tab">
+            <div class="section">
+                <h2>Task Scheduling</h2>
+                <div class="advanced-config">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="enableScheduling">
+                        Enable Automatic Scheduling
+                    </label>
+                    <div class="scheduling-controls" id="schedulingControls">
+                        <div class="input-group">
+                            <label for="scheduleInterval">Run every (minutes):</label>
+                            <input type="number" id="scheduleInterval" min="1" max="1440" value="60">
+                        </div>
+                        <div class="schedule-buttons">
+                            <button id="createTaskBtn" class="btn btn-success">Create Scheduled Task</button>
+                            <button id="removeTaskBtn" class="btn btn-danger">Remove Scheduled Task</button>
+                        </div>
+                        <div class="task-status" id="taskStatus"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>FileBot Parameter Overrides</h2>
+                <div class="advanced-config">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="enableOverrides">
+                        Enable Custom FileBot Parameters
+                    </label>
+                    <div class="override-controls" id="overrideControls">
+                        <div class="input-group">
+                            <label for="movieFormatOverride">Movie Format String:</label>
+                            <input type="text" id="movieFormatOverride" placeholder="Movies\\{n.colon(' - ')} ({y})">
+                            <small class="help-text">Custom format for movie file organization</small>
+                        </div>
+                        <div class="input-group">
+                            <label for="tvFormatOverride">TV Show Format String:</label>
+                            <input type="text" id="tvFormatOverride" placeholder="{n} ({y})\\{n} - {s00e00} - {t}">
+                            <small class="help-text">Custom format for TV show file organization</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Remote Configuration</h2>
+                <div class="advanced-config">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="enableRemoteConfig">
+                        Enable Remote Configuration Server
+                    </label>
+                    <div class="remote-controls" id="remoteControls">
+                        <div class="input-group">
+                            <label for="serverPort">Server Port:</label>
+                            <input type="number" id="serverPort" min="1024" max="65535" value="6969">
+                        </div>
+                        <div class="server-status" id="serverStatus">
+                            <span class="status-dot active"></span>
+                            <span>Server Active on port 6969</span>
+                        </div>
+                        <button id="openLocalBtn" class="btn btn-secondary">Open in Browser</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>System Tray</h2>
+                <div class="advanced-config">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="enableSystemTray">
+                        Minimize to System Tray
+                    </label>
+                    <small class="help-text">When enabled, closing the window will minimize to system tray instead of exiting</small>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Support</h2>
+                <div class="support-section">
+                    <button id="donateBtn" class="btn btn-donate">❤️ Support Development</button>
+                    <p>Help support the development of Sortarr with a donation</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Instructions Tab -->
+        <div class="tab-content" id="instructions-tab">
+            <div class="section">
+                <h2>Getting Started</h2>
+                <div class="instructions-content">
+                    <h3>1. Install FileBot</h3>
+                    <p>Download and install FileBot from <a href="https://www.filebot.net/" target="_blank">filebot.net</a></p>
+                    <p>Ensure FileBot is properly licensed for automated use</p>
+
+                    <h3>2. Configure Paths</h3>
+                    <p>In the <strong>Setup</strong> tab:</p>
+                    <ul>
+                        <li>Set the FileBot executable path</li>
+                        <li>Set your downloads folder path</li>
+                        <li>Configure destination folders for each media type</li>
+                    </ul>
+
+                    <h3>3. Enable Media Types</h3>
+                    <p>Check the boxes for the media types you want to process:</p>
+                    <ul>
+                        <li>HD Movies - Standard resolution movies</li>
+                        <li>4K Movies - Ultra high definition movies</li>
+                        <li>HD TV Shows - Standard resolution TV series</li>
+                        <li>4K TV Shows - Ultra high definition TV series</li>
+                    </ul>
+
+                    <h3>4. Save Profile</h3>
+                    <p>Save your configuration as a profile for easy loading later</p>
+
+                    <h3>5. Run Sortarr</h3>
+                    <p>Click the <strong>Run Sortarr</strong> button to start processing</p>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Advanced Features</h2>
+                <div class="instructions-content">
+                    <h3>Automated Scheduling</h3>
+                    <p>Set up Windows Task Scheduler to run Sortarr automatically at specified intervals</p>
+
+                    <h3>Remote Access</h3>
+                    <p>Access this web interface from any device on your network at:</p>
+                    <code>http://[computer-ip]:6969/</code>
+
+                    <h3>System Tray</h3>
+                    <p>Enable system tray mode to run Sortarr in the background</p>
+
+                    <h3>Custom Formats</h3>
+                    <p>Override default FileBot naming patterns for custom organization</p>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Troubleshooting</h2>
+                <div class="instructions-content">
+                    <h3>FileBot Not Found</h3>
+                    <p>Ensure FileBot is installed and the path is correctly set</p>
+
+                    <h3>Permission Errors</h3>
+                    <p>Run Sortarr as Administrator for full functionality</p>
+
+                    <h3>Network Access</h3>
+                    <p>Check Windows Firewall settings if remote access isn't working</p>
+
+                    <h3>Log Files</h3>
+                    <p>Check the log output in the Main tab for detailed error information</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- File Browser Modal -->
+    <div id="fileBrowserModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="browserTitle">Select File/Folder</h3>
+                <button class="modal-close" onclick="closeFileBrowser()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="browser-navigation">
+                    <button class="btn btn-secondary" onclick="navigateUp()">⬆️ Up</button>
+                    <span class="current-path" id="currentPath">C:\</span>
+                </div>
+                <div class="browser-content" id="browserContent">
+                    <!-- Dynamic content -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeFileBrowser()">Cancel</button>
+                <button class="btn btn-primary" onclick="selectPath()">Select</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="sortarr-web.js"></script>
+</body>
+</html>

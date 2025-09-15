@@ -30,6 +30,11 @@ namespace Sortarr
         private CheckBox[] advancedCheckboxes;
         // Logger instance
         private BufferedLogger logger;
+        // System tray components
+        private NotifyIcon notifyIcon;
+        private ContextMenuStrip trayContextMenu;
+        private bool minimizeToTray = false;
+        private bool allowVisible = true;
 
         // Buffered logging class to optimize file I/O operations
         private class BufferedLogger : IDisposable
@@ -108,6 +113,12 @@ namespace Sortarr
 
             InitializeComponent();
             Directory.CreateDirectory(profilePath);
+
+            // Initialize system tray
+            SetupSystemTray();
+
+            // Hook up form closing event
+            this.FormClosing += Sortarr_FormClosing;
 
             // Configure NumericUpDown for scheduling
             numericUpDownSchedule.Minimum = 1;
@@ -425,26 +436,52 @@ namespace Sortarr
                     var request = context.Request;
                     var response = context.Response;
 
+                    string url = request.Url.AbsolutePath;
+
                     if (request.HttpMethod == "GET")
                     {
-                        string html = GenerateConfigHtml();
-                        byte[] buffer = Encoding.UTF8.GetBytes(html);
-                        response.ContentType = "text/html";
-                        response.ContentLength64 = buffer.Length;
-                        await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
+                        // Handle static file requests
+                        if (url.EndsWith(".css"))
+                        {
+                            await ServeStaticFile(response, url, "text/css");
+                        }
+                        else if (url.EndsWith(".js"))
+                        {
+                            await ServeStaticFile(response, url, "application/javascript");
+                        }
+                        else if (url.StartsWith("/api/"))
+                        {
+                            await HandleApiRequest(request, response);
+                        }
+                        else
+                        {
+                            // For any main page request (/, /index.html, etc.), serve the comprehensive web interface
+                            string html = GenerateConfigHtml();
+                            byte[] buffer = Encoding.UTF8.GetBytes(html);
+                            response.ContentType = "text/html";
+                            response.ContentLength64 = buffer.Length;
+                            await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
+                        }
                     }
                     else if (request.HttpMethod == "POST")
                     {
-                        using (var reader = new StreamReader(request.InputStream, request.ContentEncoding))
+                        if (url.StartsWith("/api/"))
                         {
-                            string postData = await reader.ReadToEndAsync();
-                            UpdateConfigFromPost(postData);
+                            await HandleApiRequest(request, response);
                         }
-                        string html = GenerateConfigHtml("Configuration updated successfully.");
-                        byte[] buffer = Encoding.UTF8.GetBytes(html);
-                        response.ContentType = "text/html";
-                        response.ContentLength64 = buffer.Length;
-                        await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
+                        else
+                        {
+                            using (var reader = new StreamReader(request.InputStream, request.ContentEncoding))
+                            {
+                                string postData = await reader.ReadToEndAsync();
+                                UpdateConfigFromPost(postData);
+                            }
+                            string html = GenerateConfigHtml("Configuration updated successfully.");
+                            byte[] buffer = Encoding.UTF8.GetBytes(html);
+                            response.ContentType = "text/html";
+                            response.ContentLength64 = buffer.Length;
+                            await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
+                        }
                     }
 
                     response.Close();
@@ -466,7 +503,207 @@ namespace Sortarr
             }
         }
 
+        private async Task ServeStaticFile(HttpListenerResponse response, string url, string contentType)
+        {
+            try
+            {
+                string fileName = url.TrimStart('/');
+                string filePath = Path.Combine(Application.StartupPath, fileName);
+
+                if (File.Exists(filePath))
+                {
+                    byte[] fileBytes = File.ReadAllBytes(filePath);
+                    response.ContentType = contentType;
+                    response.ContentLength64 = fileBytes.Length;
+                    await response.OutputStream.WriteAsync(fileBytes, 0, fileBytes.Length);
+                }
+                else
+                {
+                    response.StatusCode = 404;
+                    string notFound = "File not found";
+                    byte[] buffer = Encoding.UTF8.GetBytes(notFound);
+                    await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogError($"Error serving static file {url}", ex);
+                response.StatusCode = 500;
+            }
+        }
+
+        private async Task HandleApiRequest(HttpListenerRequest request, HttpListenerResponse response)
+        {
+            try
+            {
+                string url = request.Url.AbsolutePath;
+                string jsonResponse = "";
+
+                // Add CORS headers for web interface
+                response.Headers.Add("Access-Control-Allow-Origin", "*");
+                response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+                response.Headers.Add("Access-Control-Allow-Headers", "Content-Type");
+                response.ContentType = "application/json";
+
+                LogMessage($"API request: {request.HttpMethod} {url}");
+
+                if (url == "/api/config" && request.HttpMethod == "GET")
+                {
+                    jsonResponse = GetCurrentConfigAsJson();
+                    LogMessage("Returning current configuration via API");
+                }
+                else if (url == "/api/profiles" && request.HttpMethod == "GET")
+                {
+                    jsonResponse = GetProfilesAsJson();
+                }
+                else if (url.StartsWith("/api/profiles/") && request.HttpMethod == "GET")
+                {
+                    string profileName = url.Substring("/api/profiles/".Length);
+                    jsonResponse = GetProfileAsJson(profileName);
+                }
+                else if (url == "/api/logs" && request.HttpMethod == "GET")
+                {
+                    jsonResponse = GetLogsAsJson();
+                }
+                else
+                {
+                    response.StatusCode = 404;
+                    jsonResponse = "{\"error\": \"API endpoint not found\"}";
+                    LogMessage($"API endpoint not found: {url}");
+                }
+
+                byte[] buffer = Encoding.UTF8.GetBytes(jsonResponse);
+                response.ContentLength64 = buffer.Length;
+                await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
+            }
+            catch (Exception ex)
+            {
+                LogError("API request error", ex);
+                response.StatusCode = 500;
+                string errorJson = "{\"error\": \"Internal server error\"}";
+                byte[] buffer = Encoding.UTF8.GetBytes(errorJson);
+                await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
+            }
+        }
+
+        private string GetCurrentConfigAsJson()
+        {
+            try
+            {
+                var config = new
+                {
+                    filebotPath = sourceFilebotFolder.Text,
+                    downloadsFolder = sourceDownloadsFolder.Text,
+                    enableHDMovies = checkboxMovie.Checked,
+                    hdMovieCount = (int)upDownMovie.Value,
+                    hdMovieFolders = new[] { sourceFolderMovies1.Text, sourceFolderMovies2.Text, sourceFolderMovies3.Text, sourceFolderMovies4.Text, sourceFolderMovies5.Text }.Where(x => !string.IsNullOrEmpty(x) && x != "Default").ToArray(),
+                    enable4KMovies = checkbox4KMovie.Checked,
+                    movieCount4K = (int)upDown4KMovie.Value,
+                    movieFolders4K = new[] { sourceFolder4kMovies1.Text, sourceFolder4kMovies2.Text, sourceFolder4kMovies3.Text, sourceFolder4kMovies4.Text, sourceFolder4kMovies5.Text }.Where(x => !string.IsNullOrEmpty(x) && x != "Default").ToArray(),
+                    enableHDTV = checkboxTVShow.Checked,
+                    hdTVCount = (int)upDownTVShow.Value,
+                    hdTVFolders = new[] { sourceFolderTVShows1.Text, sourceFolderTVShows2.Text, sourceFolderTVShows3.Text, sourceFolderTVShows4.Text, sourceFolderTVShows5.Text }.Where(x => !string.IsNullOrEmpty(x) && x != "Default").ToArray(),
+                    enable4KTV = checkbox4KTVShow.Checked,
+                    tvCount4K = (int)upDown4KTVShow.Value,
+                    tvFolders4K = new[] { sourceFolder4kTVShows1.Text, sourceFolder4kTVShows2.Text, sourceFolder4kTVShows3.Text, sourceFolder4kTVShows4.Text, sourceFolder4kTVShows5.Text }.Where(x => !string.IsNullOrEmpty(x) && x != "Default").ToArray(),
+                    enableScheduling = checkboxScheduleTask.Checked,
+                    scheduleInterval = (int)numericUpDownSchedule.Value,
+                    enableOverrides = checkboxOverrideSortarrParameters.Checked,
+                    movieFormatOverride = overrideMoviesTextBox.Text,
+                    tvFormatOverride = overrideTVShowsTextBox.Text,
+                    enableRemoteConfig = checkboxEnableRemoteConfig.Checked,
+                    serverPort = 6969,
+                    enableSystemTray = minimizeToTray
+                };
+
+                string json = System.Text.Json.JsonSerializer.Serialize(config);
+                LogMessage($"API config data: FileBot={config.filebotPath}, Downloads={config.downloadsFolder}, HD Movies={config.enableHDMovies}, HD Movie folders={config.hdMovieFolders.Length}");
+                return json;
+            }
+            catch (Exception ex)
+            {
+                LogError("Error serializing configuration to JSON", ex);
+                return "{\"error\": \"Failed to serialize configuration\"}";
+            }
+        }
+
+        private string GetProfilesAsJson()
+        {
+            try
+            {
+                var profiles = Directory.GetFiles(profilePath, "*.txt")
+                    .Select(Path.GetFileNameWithoutExtension)
+                    .OrderBy(p => p)
+                    .ToArray();
+
+                return System.Text.Json.JsonSerializer.Serialize(profiles);
+            }
+            catch
+            {
+                return "[]";
+            }
+        }
+
+        private string GetProfileAsJson(string profileName)
+        {
+            // This would return profile-specific configuration
+            // For now, return current config
+            return GetCurrentConfigAsJson();
+        }
+
+        private string GetLogsAsJson()
+        {
+            try
+            {
+                if (File.Exists(logFilePath))
+                {
+                    var allLines = File.ReadAllLines(logFilePath);
+                    var lines = allLines.Length > 50 ? allLines.Skip(allLines.Length - 50).ToArray() : allLines;
+                    return System.Text.Json.JsonSerializer.Serialize(lines);
+                }
+                return "[\"No log entries available\"]";
+            }
+            catch
+            {
+                return "[\"Error reading log file\"]";
+            }
+        }
+
         private string GenerateConfigHtml(string message = "")
+        {
+            // Load and return the comprehensive web interface
+            string htmlPath = Path.Combine(Application.StartupPath, "web-interface.html");
+
+            try
+            {
+                if (File.Exists(htmlPath))
+                {
+                    string html = File.ReadAllText(htmlPath);
+
+                    // If there's a message, inject it into the HTML
+                    if (!string.IsNullOrEmpty(message))
+                    {
+                        html = html.Replace("Ready", message);
+                    }
+
+                    LogMessage($"Serving web-interface.html from: {htmlPath}");
+                    return html;
+                }
+                else
+                {
+                    LogMessage($"web-interface.html not found at: {htmlPath}");
+                    // Fallback to basic HTML if file not found
+                    return GenerateBasicConfigHtml(message);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogError($"Error loading web-interface.html from {htmlPath}", ex);
+                return GenerateBasicConfigHtml(message);
+            }
+        }
+
+        private string GenerateBasicConfigHtml(string message = "")
         {
             var sb = new StringBuilder();
             sb.AppendLine("<!DOCTYPE html>");
@@ -480,55 +717,13 @@ namespace Sortarr
             sb.AppendLine("input[type=submit], button { margin-top: 20px; padding: 12px 24px; background-color: #4caf50; color: white; border: none; border-radius: 4px; cursor: pointer; }");
             sb.AppendLine("input[type=submit]:hover, button:hover { background-color: #45a049; }");
             sb.AppendLine(".message { color: #80ff80; margin-bottom: 20px; }");
-            sb.AppendLine(".checkbox { margin-right: 10px; }");
             sb.AppendLine("</style></head><body>");
             sb.AppendLine("<h1>Sortarr Configuration</h1>");
             if (!string.IsNullOrEmpty(message))
                 sb.AppendLine($"<p class='message'>{message}</p>");
-            sb.AppendLine("<form method='post'>");
-
-            sb.AppendLine("<label>Profile:</label>");
-            sb.AppendLine("<select name='profileSelect'><option value='Default'>Default</option></select>");
-            sb.AppendLine("<button type='button'>Load Profile</button><button type='button'>Save Profile</button><button type='button'>Delete Profile</button>");
-
-            sb.AppendLine("<label>FileBot Path:</label>");
-            sb.AppendLine($"<input type='text' name='filebotPath' value='{sourceFilebotFolder.Text}'><br>");
-
-            sb.AppendLine("<label>Downloads Folder:</label>");
-            sb.AppendLine($"<input type='text' name='downloadsFolder' value='{sourceDownloadsFolder.Text}'><br>");
-
-            sb.AppendLine("<h2>Media Types</h2>");
-            sb.AppendLine("<label><input type='checkbox' name='enableMovies' class='checkbox' checked>Enable Movies</label>");
-            sb.AppendLine("<label><input type='checkbox' name='enable4kMovies' class='checkbox'>Enable 4K Movies</label>");
-            sb.AppendLine("<label><input type='checkbox' name='enableTV' class='checkbox' checked>Enable TV Shows</label>");
-            sb.AppendLine("<label><input type='checkbox' name='enable4kTV' class='checkbox'>Enable 4K TV Shows</label>");
-
-            sb.AppendLine("<h2>Media Directories</h2>");
-            sb.AppendLine($"<label>Movies Folder 1:</label><input type='text' name='hdMovie1' value='{sourceFolderMovies1.Text}'><br>");
-            sb.AppendLine($"<label>4K Movies Folder 1:</label><input type='text' name='4kMovie1' value='{sourceFolder4kMovies1.Text}'><br>");
-            sb.AppendLine($"<label>TV Shows Folder 1:</label><input type='text' name='hdTV1' value='{sourceFolderTVShows1.Text}'><br>");
-            sb.AppendLine($"<label>4K TV Shows Folder 1:</label><input type='text' name='4kTV1' value='{sourceFolder4kTVShows1.Text}'><br>");
-            sb.AppendLine("<h2>Overrides</h2>");
-            sb.AppendLine($"<label>Override Movies Format:</label>");
-            sb.AppendLine($"<input type='text' name='overrideMovies' value='{overrideMoviesTextBox.Text}'><br>");
-
-            sb.AppendLine($"<label>Override TV Shows Format:</label>");
-            sb.AppendLine($"<input type='text' name='overrideTV' value='{overrideTVShowsTextBox.Text}'><br>");
-
-            sb.AppendLine("<h2>Automation</h2>");
-            sb.AppendLine("<label>Enable Scheduled Task:</label>");
-            sb.AppendLine("<input type='checkbox' name='scheduleEnabled' class='checkbox'><br>");
-            sb.AppendLine("<label>Run every X minutes:</label>");
-            sb.AppendLine("<input type='number' name='scheduleMinutes' value='60' min='1' max='1440'><br>");
-
-            sb.AppendLine("<h2>Remote Access</h2>");
-            sb.AppendLine("<label>Enable Remote Config Server:</label>");
-            sb.AppendLine("<input type='checkbox' name='remoteEnabled' class='checkbox'><br>");
-            sb.AppendLine("<label>Port:</label>");
-            sb.AppendLine($"<input type='number' name='remotePort' value='{sortarrPortTxt.Text}' min='1024' max='65535'><br>");
-            sb.AppendLine("<br><input type='submit' value='Save Changes'>");
-            sb.AppendLine("</form>");
+            sb.AppendLine("<p>Comprehensive web interface not available. Please check installation.</p>");
             sb.AppendLine("</body></html>");
+
             return sb.ToString();
         }
 
@@ -964,6 +1159,63 @@ namespace Sortarr
             ValidateSetup();
         }
 
+        // System Tray Setup and Management
+        private void SetupSystemTray()
+        {
+            // Create context menu
+            trayContextMenu = new ContextMenuStrip();
+            trayContextMenu.Items.Add("Show Sortarr", null, TrayShow_Click);
+            trayContextMenu.Items.Add("Run Now", null, TrayRun_Click);
+            trayContextMenu.Items.Add("-"); // Separator
+            trayContextMenu.Items.Add("Exit", null, TrayExit_Click);
+
+            // Create notify icon
+            notifyIcon = new NotifyIcon();
+            notifyIcon.Icon = this.Icon; // Use the form's icon
+            notifyIcon.Text = "Sortarr - Media File Organizer";
+            notifyIcon.ContextMenuStrip = trayContextMenu;
+            notifyIcon.Visible = false; // Initially hidden
+
+            // Double-click to show
+            notifyIcon.DoubleClick += TrayShow_Click;
+        }
+
+        private void TrayShow_Click(object sender, EventArgs e)
+        {
+            ShowFromTray();
+        }
+
+        private void TrayRun_Click(object sender, EventArgs e)
+        {
+            // Trigger Sortarr run from tray
+            sortarrBtn_Click(this, EventArgs.Empty);
+        }
+
+        private void TrayExit_Click(object sender, EventArgs e)
+        {
+            allowVisible = false;
+            minimizeToTray = false;
+            notifyIcon.Visible = false;
+            Application.Exit();
+        }
+
+        private void ShowFromTray()
+        {
+            this.Show();
+            this.WindowState = FormWindowState.Normal;
+            this.ShowInTaskbar = true;
+            this.Activate();
+            notifyIcon.Visible = false;
+        }
+
+        private void MinimizeToTray()
+        {
+            this.Hide();
+            this.ShowInTaskbar = false;
+            notifyIcon.Visible = true;
+            notifyIcon.ShowBalloonTip(2000, "Sortarr", "Application minimized to system tray", ToolTipIcon.Info);
+        }
+
         private void browseFilebotLocationBtn_Click(object sender, EventArgs e)
         {
             BrowseForFile(sourceFilebotFolder, "Executable files (*.exe)|*.exe");
@@ -1026,7 +1278,8 @@ namespace Sortarr
                 "OverrideParametersEnabled=" + checkboxOverrideSortarrParameters.Checked,
                 "OverrideMoviesFormat=" + overrideMoviesTextBox.Text,
                 "OverrideTVShowsFormat=" + overrideTVShowsTextBox.Text,
-                "RemoteConfigEnabled=" + checkboxEnableRemoteConfig.Checked
+                "RemoteConfigEnabled=" + checkboxEnableRemoteConfig.Checked,
+                "MinimizeToTray=" + minimizeToTray
             };
 
             try
@@ -1104,6 +1357,12 @@ namespace Sortarr
                 overrideMoviesTextBox.Text = settings.ContainsKey("OverrideMoviesFormat") ? settings["OverrideMoviesFormat"] : "";
                 overrideTVShowsTextBox.Text = settings.ContainsKey("OverrideTVShowsFormat") ? settings["OverrideTVShowsFormat"] : "";
                 checkboxEnableRemoteConfig.Checked = settings.ContainsKey("RemoteConfigEnabled") && bool.Parse(settings["RemoteConfigEnabled"]);
+
+                // Load tray preference
+                if (settings.ContainsKey("MinimizeToTray"))
+                {
+                    minimizeToTray = bool.Parse(settings["MinimizeToTray"]);
+                }
 
                 // Update sortarrPortTxt visibility based on checkboxEnableRemoteConfig
                 sortarrPortTxt.Visible = checkboxEnableRemoteConfig.Checked;
@@ -1748,12 +2007,75 @@ namespace Sortarr
                 BeginInvoke((SystemAction)(() => MessageBox.Show("Sortarr process completed successfully.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information)));
         }
 
+        private void Sortarr_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            if (allowVisible && e.CloseReason == CloseReason.UserClosing)
+            {
+                if (minimizeToTray)
+                {
+                    // User has enabled minimize to tray, so minimize instead of closing
+                    e.Cancel = true;
+                    MinimizeToTray();
+                }
+                else
+                {
+                    // Show dialog to ask user preference
+                    DialogResult result = MessageBox.Show(
+                        "Do you want to minimize Sortarr to the system tray instead of closing?\n\n" +
+                        "Click 'Yes' to minimize to tray (this will enable the setting)\n" +
+                        "Click 'No' to exit the application\n" +
+                        "Click 'Cancel' to return to the application",
+                        "Minimize to System Tray?",
+                        MessageBoxButtons.YesNoCancel,
+                        MessageBoxIcon.Question);
+
+                    if (result == DialogResult.Yes)
+                    {
+                        // Enable minimize to tray and minimize
+                        minimizeToTray = true;
+                        e.Cancel = true;
+                        MinimizeToTray();
+                        LogMessage("Minimize to tray enabled and application minimized.");
+                    }
+                    else if (result == DialogResult.Cancel)
+                    {
+                        // Cancel closing
+                        e.Cancel = true;
+                    }
+                    // DialogResult.No will allow normal closing
+                }
+            }
+
+            if (!e.Cancel)
+            {
+                // Proceed with normal closing
+                allowVisible = false;
+                notifyIcon.Visible = false;
+            }
+        }
+
+        protected override void SetVisibleCore(bool value)
+        {
+            base.SetVisibleCore(allowVisible && value);
+        }
+
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
+                // Unsubscribe from events
+                this.FormClosing -= Sortarr_FormClosing;
+
                 // Stop HTTP server properly before disposal
                 StopHttpServer();
+
+                // Dispose system tray components
+                if (notifyIcon != null)
+                {
+                    notifyIcon.Visible = false;
+                    notifyIcon.Dispose();
+                }
+                trayContextMenu?.Dispose();
 
                 // Dispose logger
                 logger?.Flush();
