@@ -645,3 +645,31 @@ header h1 {
         height: 250px;
     }
 }
+.setup-profile-banner {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: linear-gradient(135deg, #1e1e1e, #111111);
+    border: 1px solid #333;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 24px;
+}
+
+.setup-profile-banner .profile-badge {
+    font-size: 0.75rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #9fa3ad;
+}
+
+.setup-profile-banner .profile-display {
+    font-size: 1.35rem;
+    font-weight: 600;
+    color: #f6f6f6;
+}
+
+.setup-profile-banner .profile-display.empty {
+    color: #8a8a8a;
+    font-style: italic;
+}

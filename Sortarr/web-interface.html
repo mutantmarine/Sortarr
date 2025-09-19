@@ -19,14 +19,14 @@
 
         <!-- Tab Navigation -->
         <nav class="tab-nav">
-            <button class="tab-btn active" data-tab="main">Main</button>
-            <button class="tab-btn" data-tab="setup">Setup</button>
+            <button class="tab-btn" data-tab="main">Main</button>
+            <button class="tab-btn active" data-tab="setup">Setup</button>
             <button class="tab-btn" data-tab="advanced">Advanced</button>
             <button class="tab-btn" data-tab="instructions">Instructions</button>
         </nav>
 
         <!-- Main Tab -->
-        <div class="tab-content active" id="main-tab">
+        <div class="tab-content" id="main-tab">
             <div class="section">
                 <h2>Profile Management</h2>
                 <div class="profile-controls">
@@ -74,7 +74,11 @@
         </div>
 
         <!-- Setup Tab -->
-        <div class="tab-content" id="setup-tab">
+        <div class="tab-content active" id="setup-tab">
+            <div class="section setup-profile-banner">
+                <span class="profile-badge">Active Profile</span>
+                <span class="profile-display empty" id="activeProfileDisplay">No profile selected</span>
+            </div>
             <div class="section">
                 <h2>FileBot Configuration</h2>
                 <div class="input-group">

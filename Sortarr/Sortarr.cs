@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net;
 using System.Security.Principal;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -35,6 +36,12 @@ namespace Sortarr
         private ContextMenuStrip trayContextMenu;
         private bool minimizeToTray = false;
         private bool allowVisible = true;
+        private readonly JsonSerializerOptions jsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            AllowTrailingCommas = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
 
         // Buffered logging class to optimize file I/O operations
         private class BufferedLogger : IDisposable
@@ -310,6 +317,60 @@ namespace Sortarr
             sourceFolder4kTVShows1.Leave += (s, e) => TextBox_Leave(sourceFolder4kTVShows1, "Default");
         }
 
+        private void ExecuteOnUiThread(Action action)
+        {
+            if (action == null)
+                return;
+
+            if (InvokeRequired)
+            {
+                if (IsDisposed)
+                    return;
+
+                try
+                {
+                    Invoke(action);
+                }
+                catch (ObjectDisposedException)
+                {
+                }
+                catch (InvalidOperationException)
+                {
+                }
+            }
+            else
+            {
+                action();
+            }
+        }
+
+        private T ExecuteOnUiThread<T>(Func<T> func)
+        {
+            if (func == null)
+                throw new ArgumentNullException(nameof(func));
+
+            if (InvokeRequired)
+            {
+                if (IsDisposed)
+                    return default;
+
+                try
+                {
+                    return (T)Invoke(func);
+                }
+                catch (ObjectDisposedException)
+                {
+                    return default;
+                }
+                catch (InvalidOperationException)
+                {
+                    return default;
+                }
+            }
+
+            return func();
+        }
+
         private void TextBox_Enter(TextBox textBox, string placeholder)
         {
             if (textBox.Text == placeholder)
@@ -547,10 +608,67 @@ namespace Sortarr
 
                 LogMessage($"API request: {request.HttpMethod} {url}");
 
-                if (url == "/api/config" && request.HttpMethod == "GET")
+                if (request.HttpMethod == "OPTIONS")
                 {
-                    jsonResponse = GetCurrentConfigAsJson();
-                    LogMessage("Returning current configuration via API");
+                    response.StatusCode = 204;
+                    return;
+                }
+
+                if (url == "/api/setup" && request.HttpMethod == "GET")
+                {
+                    var config = CaptureCurrentConfig();
+                    var profiles = GetProfileNames();
+                    jsonResponse = JsonSerializer.Serialize(new { config, profiles, currentProfile = config?.CurrentProfile }, jsonOptions);
+                    LogMessage("Returning setup snapshot via API");
+                }
+                else if (url == "/api/config")
+                {
+                    if (request.HttpMethod == "GET")
+                    {
+                        var config = CaptureCurrentConfig();
+                        jsonResponse = JsonSerializer.Serialize(config, jsonOptions);
+                        LogMessage("Returning current configuration via API");
+                    }
+                    else if (request.HttpMethod == "POST")
+                    {
+                        using (var reader = new StreamReader(request.InputStream, request.ContentEncoding ?? Encoding.UTF8))
+                        {
+                            string body = await reader.ReadToEndAsync();
+
+                            if (string.IsNullOrWhiteSpace(body))
+                            {
+                                response.StatusCode = 400;
+                                jsonResponse = JsonSerializer.Serialize(new { error = "Request body is required" }, jsonOptions);
+                            }
+                            else
+                            {
+                                WebConfigUpdate update = null;
+                                try
+                                {
+                                    update = JsonSerializer.Deserialize<WebConfigUpdate>(body, jsonOptions);
+                                }
+                                catch (JsonException ex)
+                                {
+                                    response.StatusCode = 400;
+                                    LogError("Invalid JSON payload", ex);
+                                    jsonResponse = JsonSerializer.Serialize(new { error = "Invalid JSON payload" }, jsonOptions);
+                                }
+
+                                if (update != null)
+                                {
+                                    ApplyConfigUpdate(update);
+                                    var updatedConfig = CaptureCurrentConfig();
+                                    jsonResponse = JsonSerializer.Serialize(new { success = true, config = updatedConfig }, jsonOptions);
+                                    LogMessage("Configuration updated via API");
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        response.StatusCode = 405;
+                        jsonResponse = JsonSerializer.Serialize(new { error = "Method not allowed" }, jsonOptions);
+                    }
                 }
                 else if (url == "/api/profiles" && request.HttpMethod == "GET")
                 {
@@ -560,6 +678,156 @@ namespace Sortarr
                 {
                     string profileName = url.Substring("/api/profiles/".Length);
                     jsonResponse = GetProfileAsJson(profileName);
+                }
+                else if (url.StartsWith("/api/profiles/") && request.HttpMethod == "POST")
+                {
+                    string profileName = Uri.UnescapeDataString(url.Substring("/api/profiles/".Length));
+                    if (string.IsNullOrWhiteSpace(profileName))
+                    {
+                        response.StatusCode = 400;
+                        jsonResponse = JsonSerializer.Serialize(new { error = "Profile name is required" }, jsonOptions);
+                    }
+                    else
+                    {
+                        using (var reader = new StreamReader(request.InputStream, request.ContentEncoding ?? Encoding.UTF8))
+                        {
+                            string body = await reader.ReadToEndAsync();
+                            if (string.IsNullOrWhiteSpace(body))
+                            {
+                                response.StatusCode = 400;
+                                jsonResponse = JsonSerializer.Serialize(new { error = "Request body is required" }, jsonOptions);
+                            }
+                            else
+                            {
+                                WebConfigUpdate updatePayload = null;
+                                try
+                                {
+                                    updatePayload = JsonSerializer.Deserialize<WebConfigUpdate>(body, jsonOptions);
+                                }
+                                catch (JsonException ex)
+                                {
+                                    response.StatusCode = 400;
+                                    LogError("Invalid profile payload", ex);
+                                    jsonResponse = JsonSerializer.Serialize(new { error = "Invalid JSON payload" }, jsonOptions);
+                                }
+
+                                if (updatePayload != null)
+                                {
+                                    ApplyConfigUpdate(updatePayload);
+                                    List<string> lines = ExecuteOnUiThread(() => BuildProfileLinesFromUi()) ?? new List<string>();
+                                    string profileFile = Path.Combine(profilePath, profileName + ".txt");
+
+                                    try
+                                    {
+                                        Directory.CreateDirectory(profilePath);
+                                        File.WriteAllLines(profileFile, lines);
+
+                                        ExecuteOnUiThread(() =>
+                                        {
+                                            LoadProfilesToDropdown();
+                                            profileSelector.SelectedItem = profileName;
+                                        });
+
+                                        var updatedConfig = CaptureCurrentConfig();
+                                        jsonResponse = JsonSerializer.Serialize(new { success = true, profileName, config = updatedConfig }, jsonOptions);
+                                        LogMessage($"Profile '{profileName}' saved via API");
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        response.StatusCode = 500;
+                                        LogError($"Failed to save profile '{profileName}' via API", ex);
+                                        jsonResponse = JsonSerializer.Serialize(new { error = "Failed to save profile" }, jsonOptions);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                else if (url.StartsWith("/api/profiles/") && request.HttpMethod == "DELETE")
+                {
+                    string profileName = Uri.UnescapeDataString(url.Substring("/api/profiles/".Length));
+                    if (string.IsNullOrWhiteSpace(profileName))
+                    {
+                        response.StatusCode = 400;
+                        jsonResponse = JsonSerializer.Serialize(new { error = "Profile name is required" }, jsonOptions);
+                    }
+                    else
+                    {
+                        string profileFile = Path.Combine(profilePath, profileName + ".txt");
+                        if (!File.Exists(profileFile))
+                        {
+                            response.StatusCode = 404;
+                            jsonResponse = JsonSerializer.Serialize(new { error = "Profile not found" }, jsonOptions);
+                        }
+                        else
+                        {
+                            try
+                            {
+                                File.Delete(profileFile);
+                                ExecuteOnUiThread(() =>
+                                {
+                                    LoadProfilesToDropdown();
+                                    profileSelector.Text = string.Empty;
+                                });
+                                var updatedConfig = CaptureCurrentConfig();
+                                jsonResponse = JsonSerializer.Serialize(new { success = true, profileName, config = updatedConfig }, jsonOptions);
+                                LogMessage($"Profile '{profileName}' deleted via API");
+                            }
+                            catch (Exception ex)
+                            {
+                                response.StatusCode = 500;
+                                LogError($"Failed to delete profile '{profileName}' via API", ex);
+                                jsonResponse = JsonSerializer.Serialize(new { error = "Failed to delete profile" }, jsonOptions);
+                            }
+                        }
+                    }
+                }
+                else if (url == "/api/profiles/select" && request.HttpMethod == "POST")
+                {
+                    using (var reader = new StreamReader(request.InputStream, request.ContentEncoding ?? Encoding.UTF8))
+                    {
+                        string body = await reader.ReadToEndAsync();
+                        if (string.IsNullOrWhiteSpace(body))
+                        {
+                            response.StatusCode = 400;
+                            jsonResponse = JsonSerializer.Serialize(new { error = "Profile name is required" }, jsonOptions);
+                        }
+                        else
+                        {
+                            ProfileSelectionRequest selection = null;
+                            try
+                            {
+                                selection = JsonSerializer.Deserialize<ProfileSelectionRequest>(body, jsonOptions);
+                            }
+                            catch (JsonException ex)
+                            {
+                                response.StatusCode = 400;
+                                LogError("Invalid profile selection payload", ex);
+                                jsonResponse = JsonSerializer.Serialize(new { error = "Invalid JSON payload" }, jsonOptions);
+                            }
+
+                            if (selection == null || string.IsNullOrWhiteSpace(selection.ProfileName))
+                            {
+                                response.StatusCode = 400;
+                                jsonResponse = JsonSerializer.Serialize(new { error = "Profile name is required" }, jsonOptions);
+                            }
+                            else
+                            {
+                                bool applied = ApplyProfileSelection(selection.ProfileName);
+                                if (!applied)
+                                {
+                                    response.StatusCode = 404;
+                                    jsonResponse = JsonSerializer.Serialize(new { error = "Profile not found" }, jsonOptions);
+                                }
+                                else
+                                {
+                                    var updatedConfig = CaptureCurrentConfig();
+                                    jsonResponse = JsonSerializer.Serialize(new { success = true, currentProfile = selection.ProfileName, config = updatedConfig }, jsonOptions);
+                                    LogMessage($"Profile '{selection.ProfileName}' applied via API");
+                                }
+                            }
+                        }
+                    }
                 }
                 else if (url == "/api/logs" && request.HttpMethod == "GET")
                 {
@@ -590,34 +858,9 @@ namespace Sortarr
         {
             try
             {
-                var config = new
-                {
-                    filebotPath = sourceFilebotFolder.Text,
-                    downloadsFolder = sourceDownloadsFolder.Text,
-                    enableHDMovies = checkboxMovie.Checked,
-                    hdMovieCount = (int)upDownMovie.Value,
-                    hdMovieFolders = new[] { sourceFolderMovies1.Text, sourceFolderMovies2.Text, sourceFolderMovies3.Text, sourceFolderMovies4.Text, sourceFolderMovies5.Text }.Where(x => !string.IsNullOrEmpty(x) && x != "Default").ToArray(),
-                    enable4KMovies = checkbox4KMovie.Checked,
-                    movieCount4K = (int)upDown4KMovie.Value,
-                    movieFolders4K = new[] { sourceFolder4kMovies1.Text, sourceFolder4kMovies2.Text, sourceFolder4kMovies3.Text, sourceFolder4kMovies4.Text, sourceFolder4kMovies5.Text }.Where(x => !string.IsNullOrEmpty(x) && x != "Default").ToArray(),
-                    enableHDTV = checkboxTVShow.Checked,
-                    hdTVCount = (int)upDownTVShow.Value,
-                    hdTVFolders = new[] { sourceFolderTVShows1.Text, sourceFolderTVShows2.Text, sourceFolderTVShows3.Text, sourceFolderTVShows4.Text, sourceFolderTVShows5.Text }.Where(x => !string.IsNullOrEmpty(x) && x != "Default").ToArray(),
-                    enable4KTV = checkbox4KTVShow.Checked,
-                    tvCount4K = (int)upDown4KTVShow.Value,
-                    tvFolders4K = new[] { sourceFolder4kTVShows1.Text, sourceFolder4kTVShows2.Text, sourceFolder4kTVShows3.Text, sourceFolder4kTVShows4.Text, sourceFolder4kTVShows5.Text }.Where(x => !string.IsNullOrEmpty(x) && x != "Default").ToArray(),
-                    enableScheduling = checkboxScheduleTask.Checked,
-                    scheduleInterval = (int)numericUpDownSchedule.Value,
-                    enableOverrides = checkboxOverrideSortarrParameters.Checked,
-                    movieFormatOverride = overrideMoviesTextBox.Text,
-                    tvFormatOverride = overrideTVShowsTextBox.Text,
-                    enableRemoteConfig = checkboxEnableRemoteConfig.Checked,
-                    serverPort = 6969,
-                    enableSystemTray = minimizeToTray
-                };
-
-                string json = System.Text.Json.JsonSerializer.Serialize(config);
-                LogMessage($"API config data: FileBot={config.filebotPath}, Downloads={config.downloadsFolder}, HD Movies={config.enableHDMovies}, HD Movie folders={config.hdMovieFolders.Length}");
+                var config = CaptureCurrentConfig();
+                string json = JsonSerializer.Serialize(config, jsonOptions);
+                LogMessage($"API config data: FileBot={config?.FilebotPath}, Downloads={config?.DownloadsFolder}, HD Movies={config?.EnableHDMovies}, HD Movie folders={config?.HdMovieFolders?.Length ?? 0}");
                 return json;
             }
             catch (Exception ex)
@@ -631,12 +874,8 @@ namespace Sortarr
         {
             try
             {
-                var profiles = Directory.GetFiles(profilePath, "*.txt")
-                    .Select(Path.GetFileNameWithoutExtension)
-                    .OrderBy(p => p)
-                    .ToArray();
-
-                return System.Text.Json.JsonSerializer.Serialize(profiles);
+                var profiles = GetProfileNames();
+                return JsonSerializer.Serialize(profiles, jsonOptions);
             }
             catch
             {
@@ -646,9 +885,383 @@ namespace Sortarr
 
         private string GetProfileAsJson(string profileName)
         {
-            // This would return profile-specific configuration
-            // For now, return current config
-            return GetCurrentConfigAsJson();
+            try
+            {
+                if (string.IsNullOrWhiteSpace(profileName))
+                {
+                    return JsonSerializer.Serialize(new { error = "Profile name is required" }, jsonOptions);
+                }
+
+                string profileFile = Path.Combine(profilePath, profileName + ".txt");
+                if (!File.Exists(profileFile))
+                {
+                    return JsonSerializer.Serialize(new { error = "Profile not found" }, jsonOptions);
+                }
+
+                var settings = File.ReadAllLines(profileFile)
+                    .Select(line => line.Split(new[] { '=' }, 2))
+                    .Where(parts => parts.Length == 2)
+                    .ToDictionary(parts => parts[0], parts => parts[1]);
+
+                var config = BuildConfigFromSettings(settings, profileName);
+                config.CurrentProfile = profileName;
+
+                return JsonSerializer.Serialize(config, jsonOptions);
+            }
+            catch (Exception ex)
+            {
+                LogError($"Error reading profile '{profileName}'", ex);
+                return JsonSerializer.Serialize(new { error = "Failed to load profile" }, jsonOptions);
+            }
+        }
+
+        private WebConfigData CaptureCurrentConfig()
+        {
+            return ExecuteOnUiThread(() =>
+            {
+                var (hdMovieCheck, hdMovieUpDown, hdMovieTextBoxes, _, _) = mediaControls["HDMovie"];
+                var (movie4kCheck, movie4kUpDown, movie4kTextBoxes, _, _) = mediaControls["4KMovie"];
+                var (hdTvCheck, hdTvUpDown, hdTvTextBoxes, _, _) = mediaControls["HDTVShow"];
+                var (tv4kCheck, tv4kUpDown, tv4kTextBoxes, _, _) = mediaControls["4KTVShow"];
+
+                var config = new WebConfigData
+                {
+                    FilebotPath = sourceFilebotFolder.Text,
+                    DownloadsFolder = sourceDownloadsFolder.Text,
+                    EnableHDMovies = hdMovieCheck.Checked,
+                    HdMovieCount = (int)hdMovieUpDown.Value,
+                    HdMovieFolders = hdMovieTextBoxes
+                        .Take((int)hdMovieUpDown.Value)
+                        .Select((tb, index) => NormalizeFolderForResponse(tb.Text, index == 0))
+                        .ToArray(),
+                    Enable4KMovies = movie4kCheck.Checked,
+                    MovieCount4K = (int)movie4kUpDown.Value,
+                    MovieFolders4K = movie4kTextBoxes
+                        .Take((int)movie4kUpDown.Value)
+                        .Select((tb, index) => NormalizeFolderForResponse(tb.Text, index == 0))
+                        .ToArray(),
+                    EnableHDTV = hdTvCheck.Checked,
+                    HdTVCount = (int)hdTvUpDown.Value,
+                    HdTVFolders = hdTvTextBoxes
+                        .Take((int)hdTvUpDown.Value)
+                        .Select((tb, index) => NormalizeFolderForResponse(tb.Text, index == 0))
+                        .ToArray(),
+                    Enable4KTV = tv4kCheck.Checked,
+                    TvCount4K = (int)tv4kUpDown.Value,
+                    TvFolders4K = tv4kTextBoxes
+                        .Take((int)tv4kUpDown.Value)
+                        .Select((tb, index) => NormalizeFolderForResponse(tb.Text, index == 0))
+                        .ToArray(),
+                    EnableScheduling = checkboxScheduleTask.Checked,
+                    ScheduleInterval = (int)numericUpDownSchedule.Value,
+                    EnableOverrides = checkboxOverrideSortarrParameters.Checked,
+                    MovieFormatOverride = overrideMoviesTextBox.Text,
+                    TvFormatOverride = overrideTVShowsTextBox.Text,
+                    EnableRemoteConfig = checkboxEnableRemoteConfig.Checked,
+                    ServerPort = 6969,
+                    EnableSystemTray = minimizeToTray,
+                    CurrentProfile = profileSelector.Text
+                };
+
+                return config;
+            });
+        }
+
+        private void ApplyConfigUpdate(WebConfigUpdate update)
+        {
+            if (update == null)
+                return;
+
+            ExecuteOnUiThread(() =>
+            {
+                if (update.FilebotPath != null)
+                    sourceFilebotFolder.Text = update.FilebotPath;
+
+                if (update.DownloadsFolder != null)
+                    sourceDownloadsFolder.Text = update.DownloadsFolder;
+
+                var hdMovie = mediaControls["HDMovie"];
+                if (update.EnableHDMovies.HasValue)
+                    hdMovie.CheckBox.Checked = update.EnableHDMovies.Value;
+                if (update.HdMovieCount.HasValue)
+                    hdMovie.UpDown.Value = ClampNumeric(hdMovie.UpDown, update.HdMovieCount.Value);
+                if (update.HdMovieFolders != null)
+                    SetMediaFolders(hdMovie.TextBoxes, update.HdMovieFolders, update.HdMovieCount ?? (int)hdMovie.UpDown.Value, true);
+
+                var movie4k = mediaControls["4KMovie"];
+                if (update.Enable4KMovies.HasValue)
+                    movie4k.CheckBox.Checked = update.Enable4KMovies.Value;
+                if (update.MovieCount4K.HasValue)
+                    movie4k.UpDown.Value = ClampNumeric(movie4k.UpDown, update.MovieCount4K.Value);
+                if (update.MovieFolders4K != null)
+                    SetMediaFolders(movie4k.TextBoxes, update.MovieFolders4K, update.MovieCount4K ?? (int)movie4k.UpDown.Value, true);
+
+                var hdTv = mediaControls["HDTVShow"];
+                if (update.EnableHDTV.HasValue)
+                    hdTv.CheckBox.Checked = update.EnableHDTV.Value;
+                if (update.HdTVCount.HasValue)
+                    hdTv.UpDown.Value = ClampNumeric(hdTv.UpDown, update.HdTVCount.Value);
+                if (update.HdTVFolders != null)
+                    SetMediaFolders(hdTv.TextBoxes, update.HdTVFolders, update.HdTVCount ?? (int)hdTv.UpDown.Value, true);
+
+                var tv4k = mediaControls["4KTVShow"];
+                if (update.Enable4KTV.HasValue)
+                    tv4k.CheckBox.Checked = update.Enable4KTV.Value;
+                if (update.TvCount4K.HasValue)
+                    tv4k.UpDown.Value = ClampNumeric(tv4k.UpDown, update.TvCount4K.Value);
+                if (update.TvFolders4K != null)
+                    SetMediaFolders(tv4k.TextBoxes, update.TvFolders4K, update.TvCount4K ?? (int)tv4k.UpDown.Value, true);
+
+                if (update.EnableScheduling.HasValue)
+                    checkboxScheduleTask.Checked = update.EnableScheduling.Value;
+
+                if (update.ScheduleInterval.HasValue)
+                    numericUpDownSchedule.Value = ClampNumeric(numericUpDownSchedule, update.ScheduleInterval.Value);
+
+                if (update.EnableOverrides.HasValue)
+                    checkboxOverrideSortarrParameters.Checked = update.EnableOverrides.Value;
+
+                if (update.MovieFormatOverride != null)
+                    overrideMoviesTextBox.Text = update.MovieFormatOverride;
+
+                if (update.TvFormatOverride != null)
+                    overrideTVShowsTextBox.Text = update.TvFormatOverride;
+
+                if (update.EnableRemoteConfig.HasValue)
+                    checkboxEnableRemoteConfig.Checked = update.EnableRemoteConfig.Value;
+
+                if (update.EnableSystemTray.HasValue)
+                    minimizeToTray = update.EnableSystemTray.Value;
+
+                if (!string.IsNullOrWhiteSpace(update.CurrentProfile) && profileSelector.Items.Contains(update.CurrentProfile))
+                    profileSelector.SelectedItem = update.CurrentProfile;
+
+                UpdateControlVisibility();
+                ValidateSetup();
+            });
+        }
+
+        private decimal ClampNumeric(NumericUpDown control, int value)
+        {
+            decimal decimalValue = value;
+            if (decimalValue < control.Minimum)
+                decimalValue = control.Minimum;
+            if (decimalValue > control.Maximum)
+                decimalValue = control.Maximum;
+            return decimalValue;
+        }
+
+        private void SetMediaFolders(TextBox[] textBoxes, string[] values, int? requestedCount, bool firstUsesDefault)
+        {
+            if (values == null)
+                return;
+
+            int count = Math.Max(1, requestedCount ?? values.Length);
+            count = Math.Min(count, textBoxes.Length);
+
+            for (int i = 0; i < textBoxes.Length; i++)
+            {
+                if (i < count)
+                {
+                    string value = i < values.Length ? values[i] : null;
+                    textBoxes[i].Text = NormalizeIncomingFolder(value, firstUsesDefault && i == 0);
+                }
+                else
+                {
+                    textBoxes[i].Text = firstUsesDefault && i == 0 ? "Default" : string.Empty;
+                }
+            }
+        }
+
+        private static string NormalizeFolderForResponse(string value, bool treatDefaultAsEmpty)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            if (treatDefaultAsEmpty && string.Equals(value, "Default", StringComparison.OrdinalIgnoreCase))
+                return string.Empty;
+
+            return value;
+        }
+
+        private static string NormalizeIncomingFolder(string value, bool useDefaultPlaceholder)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return useDefaultPlaceholder ? "Default" : string.Empty;
+
+            return value;
+        }
+
+        private string[] GetProfileNames()
+        {
+            try
+            {
+                if (!Directory.Exists(profilePath))
+                    return Array.Empty<string>();
+
+                return Directory.GetFiles(profilePath, "*.txt")
+                    .Select(Path.GetFileNameWithoutExtension)
+                    .OrderBy(p => p)
+                    .ToArray();
+            }
+            catch (Exception ex)
+            {
+                LogError("Failed to enumerate profiles", ex);
+                return Array.Empty<string>();
+            }
+        }
+
+        private bool ApplyProfileSelection(string profileName)
+        {
+            if (string.IsNullOrWhiteSpace(profileName))
+                return false;
+
+            bool applied = false;
+
+            ExecuteOnUiThread(() =>
+            {
+                if (!profileSelector.Items.Contains(profileName))
+                    return;
+
+                profileSelector.SelectedItem = profileName;
+                loadProfileBtn.PerformClick();
+                applied = true;
+            });
+
+            return applied;
+        }
+
+        private WebConfigData BuildConfigFromSettings(Dictionary<string, string> settings, string profileName = null)
+        {
+            if (settings == null)
+                return CaptureCurrentConfig();
+
+            int hdMovieCount = ClampCount(ParseInt(settings, "HDMovieCount", 1));
+            int movie4kCount = ClampCount(ParseInt(settings, "4KMovieCount", 1));
+            int hdTvCount = ClampCount(ParseInt(settings, "HDTVCount", 1));
+            int tv4kCount = ClampCount(ParseInt(settings, "4KTVCount", 1));
+
+            var config = new WebConfigData
+            {
+                FilebotPath = settings.TryGetValue("FileBot", out var filebot) ? filebot : string.Empty,
+                DownloadsFolder = settings.TryGetValue("Downloads", out var downloads) ? downloads : string.Empty,
+                EnableHDMovies = ParseBool(settings, "HDMovieEnabled"),
+                HdMovieCount = hdMovieCount,
+                HdMovieFolders = Enumerable.Range(1, hdMovieCount)
+                    .Select(i => settings.TryGetValue($"HDMovie{i}", out var value) ? value : string.Empty)
+                    .Select((value, index) => NormalizeFolderForResponse(value, index == 0))
+                    .ToArray(),
+                Enable4KMovies = ParseBool(settings, "4KMovieEnabled"),
+                MovieCount4K = movie4kCount,
+                MovieFolders4K = Enumerable.Range(1, movie4kCount)
+                    .Select(i => settings.TryGetValue($"4KMovie{i}", out var value) ? value : string.Empty)
+                    .Select((value, index) => NormalizeFolderForResponse(value, index == 0))
+                    .ToArray(),
+                EnableHDTV = ParseBool(settings, "HDTVEnabled"),
+                HdTVCount = hdTvCount,
+                HdTVFolders = Enumerable.Range(1, hdTvCount)
+                    .Select(i => settings.TryGetValue($"HDTV{i}", out var value) ? value : string.Empty)
+                    .Select((value, index) => NormalizeFolderForResponse(value, index == 0))
+                    .ToArray(),
+                Enable4KTV = ParseBool(settings, "4KTVEnabled"),
+                TvCount4K = tv4kCount,
+                TvFolders4K = Enumerable.Range(1, tv4kCount)
+                    .Select(i => settings.TryGetValue($"4KTV{i}", out var value) ? value : string.Empty)
+                    .Select((value, index) => NormalizeFolderForResponse(value, index == 0))
+                    .ToArray(),
+                EnableScheduling = ParseBool(settings, "ScheduleTaskEnabled"),
+                ScheduleInterval = Math.Max(1, ParseInt(settings, "ScheduleInterval", 1)),
+                EnableOverrides = ParseBool(settings, "OverrideParametersEnabled"),
+                MovieFormatOverride = settings.TryGetValue("OverrideMoviesFormat", out var movieFormat) ? movieFormat : string.Empty,
+                TvFormatOverride = settings.TryGetValue("OverrideTVShowsFormat", out var tvFormat) ? tvFormat : string.Empty,
+                EnableRemoteConfig = ParseBool(settings, "RemoteConfigEnabled"),
+                ServerPort = 6969,
+                EnableSystemTray = ParseBool(settings, "MinimizeToTray"),
+                CurrentProfile = profileSelector.Text
+            };
+
+            return config;
+        }
+
+        private static bool ParseBool(Dictionary<string, string> settings, string key, bool defaultValue = false)
+        {
+            if (settings.TryGetValue(key, out var value) && bool.TryParse(value, out var parsed))
+                return parsed;
+            return defaultValue;
+        }
+
+        private static int ParseInt(Dictionary<string, string> settings, string key, int defaultValue)
+        {
+            if (settings.TryGetValue(key, out var value) && int.TryParse(value, out var parsed))
+                return parsed;
+            return defaultValue;
+        }
+
+        private static int ClampCount(int value, int min = 1, int max = 5)
+        {
+            if (value < min)
+                return min;
+            if (value > max)
+                return max;
+            return value;
+        }
+
+        private class ProfileSelectionRequest
+        {
+            public string ProfileName { get; set; }
+        }
+
+        private class WebConfigData
+        {
+            public string FilebotPath { get; set; }
+            public string DownloadsFolder { get; set; }
+            public bool EnableHDMovies { get; set; }
+            public int HdMovieCount { get; set; }
+            public string[] HdMovieFolders { get; set; }
+            public bool Enable4KMovies { get; set; }
+            public int MovieCount4K { get; set; }
+            public string[] MovieFolders4K { get; set; }
+            public bool EnableHDTV { get; set; }
+            public int HdTVCount { get; set; }
+            public string[] HdTVFolders { get; set; }
+            public bool Enable4KTV { get; set; }
+            public int TvCount4K { get; set; }
+            public string[] TvFolders4K { get; set; }
+            public bool EnableScheduling { get; set; }
+            public int ScheduleInterval { get; set; }
+            public bool EnableOverrides { get; set; }
+            public string MovieFormatOverride { get; set; }
+            public string TvFormatOverride { get; set; }
+            public bool EnableRemoteConfig { get; set; }
+            public int ServerPort { get; set; }
+            public bool EnableSystemTray { get; set; }
+            public string CurrentProfile { get; set; }
+        }
+
+        private class WebConfigUpdate
+        {
+            public string FilebotPath { get; set; }
+            public string DownloadsFolder { get; set; }
+            public bool? EnableHDMovies { get; set; }
+            public int? HdMovieCount { get; set; }
+            public string[] HdMovieFolders { get; set; }
+            public bool? Enable4KMovies { get; set; }
+            public int? MovieCount4K { get; set; }
+            public string[] MovieFolders4K { get; set; }
+            public bool? EnableHDTV { get; set; }
+            public int? HdTVCount { get; set; }
+            public string[] HdTVFolders { get; set; }
+            public bool? Enable4KTV { get; set; }
+            public int? TvCount4K { get; set; }
+            public string[] TvFolders4K { get; set; }
+            public bool? EnableScheduling { get; set; }
+            public int? ScheduleInterval { get; set; }
+            public bool? EnableOverrides { get; set; }
+            public string MovieFormatOverride { get; set; }
+            public string TvFormatOverride { get; set; }
+            public bool? EnableRemoteConfig { get; set; }
+            public bool? EnableSystemTray { get; set; }
+            public string CurrentProfile { get; set; }
         }
 
         private string GetLogsAsJson()
@@ -905,7 +1518,7 @@ namespace Sortarr
             {
                 using (Process.Start(new ProcessStartInfo
                 {
-                    FileName = "https://www.paypal.com/donate/?business=WBHFP3TMYUHS8&amount=5&no_recurring=1&item_name=Thank+you+for+trying+my+program.+It+took+many+hours+and+late+nights+to+get+it+up+and+running.+Your+donations+are+appreciated%21¤cy_code=USD",
+                    FileName = "https://www.paypal.com/donate/?business=WBHFP3TMYUHS8&amount=5&no_recurring=1&item_name=Thank+you+for+trying+my+program.+It+took+many+hours+and+late+nights+to+get+it+up+and+running.+Your+donations+are+appreciated%21cy_code=USD",
                     UseShellExecute = true
                 })) { }
                 LogMessage("Opened donation link: https://www.paypal.com");
@@ -1231,19 +1844,9 @@ namespace Sortarr
             BrowseForFolder(targetBox);
         }
 
-        private void saveProfileBtn_Click(object sender, EventArgs e)
+        private List<string> BuildProfileLinesFromUi()
         {
-            string profileName = profileSelector.Text.Trim();
-            if (string.IsNullOrWhiteSpace(profileName))
-            {
-                LogMessage("No profile name entered for saving.");
-                if (!isAutomated && IsHandleCreated)
-                    BeginInvoke((SystemAction)(() => MessageBox.Show("Enter a profile name to save.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning)));
-                return;
-            }
-
-            string path = Path.Combine(profilePath, profileName + ".txt");
-            var lines = new List<string>
+            return new List<string>
             {
                 "HDMovieEnabled=" + checkboxMovie.Checked,
                 "HDMovieCount=" + upDownMovie.Value,
@@ -1281,6 +1884,21 @@ namespace Sortarr
                 "RemoteConfigEnabled=" + checkboxEnableRemoteConfig.Checked,
                 "MinimizeToTray=" + minimizeToTray
             };
+        }
+
+        private void saveProfileBtn_Click(object sender, EventArgs e)
+        {
+            string profileName = profileSelector.Text.Trim();
+            if (string.IsNullOrWhiteSpace(profileName))
+            {
+                LogMessage("No profile name entered for saving.");
+                if (!isAutomated && IsHandleCreated)
+                    BeginInvoke((SystemAction)(() => MessageBox.Show("Enter a profile name to save.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning)));
+                return;
+            }
+
+            string path = Path.Combine(profilePath, profileName + ".txt");
+            var lines = BuildProfileLinesFromUi();
 
             try
             {
@@ -2085,3 +2703,4 @@ namespace Sortarr
         }
     }
 }
+

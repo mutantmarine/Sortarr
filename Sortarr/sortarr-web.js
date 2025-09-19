@@ -1,23 +1,26 @@
-// Sortarr Web Interface JavaScript
+﻿// Sortarr Web Interface JavaScript
 // Comprehensive functionality for the web interface
 
 class SortarrWeb {
     constructor() {
         this.isRunning = false;
         this.logUpdateInterval = null;
-        this.currentPath = 'C:\\';
+        this.configPollingTimer = null;
+        this.currentPath = 'C\\\\';
         this.browserTarget = null;
         this.browserMode = 'folder'; // 'folder' or 'file'
+        this.currentProfile = '';
 
         this.init();
     }
 
-    init() {
+    async init() {
         this.setupTabs();
         this.setupEventListeners();
-        this.loadProfiles();
-        this.loadConfiguration();
+        this.registerLifecycleHandlers();
+        await this.loadSetupData();
         this.startLogPolling();
+        this.startConfigPolling();
         this.updateStatus();
     }
 
@@ -43,6 +46,11 @@ class SortarrWeb {
 
     // Event Listeners
     setupEventListeners() {
+        const profileSelect = document.getElementById('profileSelect');
+        if (profileSelect) {
+            profileSelect.addEventListener('change', () => this.handleProfileSelection());
+        }
+
         // Profile Management
         document.getElementById('loadProfileBtn').addEventListener('click', () => this.loadProfile());
         document.getElementById('saveProfileBtn').addEventListener('click', () => this.saveProfile());
@@ -88,76 +96,261 @@ class SortarrWeb {
 
         // Folder count changes
         document.getElementById('hdMovieCount').addEventListener('change', (e) => {
-            this.updateFolderInputs('hdMovies', e.target.value);
+            const newCount = parseInt(e.target.value, 10) || 1;
+            const existing = this.collectCurrentFolderValues('hdMovies');
+            this.updateFolderInputs('hdMovies', newCount, existing);
         });
         document.getElementById('movieCount4K').addEventListener('change', (e) => {
-            this.updateFolderInputs('4kMovies', e.target.value);
+            const newCount = parseInt(e.target.value, 10) || 1;
+            const existing = this.collectCurrentFolderValues('4kMovies');
+            this.updateFolderInputs('4kMovies', newCount, existing);
         });
         document.getElementById('hdTVCount').addEventListener('change', (e) => {
-            this.updateFolderInputs('hdTV', e.target.value);
+            const newCount = parseInt(e.target.value, 10) || 1;
+            const existing = this.collectCurrentFolderValues('hdTV');
+            this.updateFolderInputs('hdTV', newCount, existing);
         });
         document.getElementById('tvCount4K').addEventListener('change', (e) => {
-            this.updateFolderInputs('4kTV', e.target.value);
+            const newCount = parseInt(e.target.value, 10) || 1;
+            const existing = this.collectCurrentFolderValues('4kTV');
+            this.updateFolderInputs('4kTV', newCount, existing);
         });
     }
 
     // API Communication
     async apiCall(endpoint, method = 'GET', data = null) {
         const options = {
-            method: method,
+            method,
             headers: {
                 'Content-Type': 'application/json',
-            }
+            },
         };
 
-        if (data) {
+        if (data !== null && data !== undefined) {
             options.body = JSON.stringify(data);
         }
 
         try {
             const response = await fetch(`/api/${endpoint}`, options);
-            return await response.json();
+            const status = response.status;
+            let payload = null;
+
+            if (status !== 204) {
+                const textBody = await response.text();
+                if (textBody) {
+                    try {
+                        payload = JSON.parse(textBody);
+                    } catch (parseError) {
+                        console.warn('Failed to parse response JSON', parseError);
+                    }
+                }
+            }
+
+            if (!response.ok) {
+                const message = (payload && payload.error) ? payload.error : `Request failed (${status})`;
+                this.showNotification(message, 'error');
+                return null;
+            }
+
+            return payload;
         } catch (error) {
             console.error('API call failed:', error);
             this.showNotification('Connection error', 'error');
             return null;
         }
     }
+    registerLifecycleHandlers() {
+        window.addEventListener('beforeunload', () => {
+            this.stopLogPolling();
+            this.stopConfigPolling();
+        });
+    }
 
-    // Profile Management
-    async loadProfiles() {
-        const profiles = await this.apiCall('profiles');
-        const profileSelect = document.getElementById('profileSelect');
+    async loadSetupData() {
+        const setup = await this.apiCall('setup');
+        if (!setup) {
+            await this.loadProfiles();
+            await this.refreshConfig(true);
+            return;
+        }
 
-        profileSelect.innerHTML = '<option value="">Select Profile...</option>';
+        this.populateProfiles(setup.profiles || [], setup.currentProfile || '');
 
-        if (profiles) {
-            profiles.forEach(profile => {
-                const option = document.createElement('option');
-                option.value = profile;
-                option.textContent = profile;
-                profileSelect.appendChild(option);
-            });
+        if (setup.config) {
+            this.populateForm(setup.config, { silent: true });
+        } else {
+            await this.refreshConfig(true);
         }
     }
 
+    populateProfiles(profiles = [], selectedProfile = '') {
+        const profileSelect = document.getElementById('profileSelect');
+        const list = Array.isArray(profiles) ? profiles : [];
+
+        if (!profileSelect) {
+            this.currentProfile = selectedProfile || this.currentProfile || '';
+            this.updateProfileBanner();
+            return;
+        }
+
+        profileSelect.innerHTML = '<option value="">Select Profile...</option>';
+
+        list.forEach(profile => {
+            const option = document.createElement('option');
+            option.value = profile;
+            option.textContent = profile;
+            profileSelect.appendChild(option);
+        });
+
+        this.setProfileSelection(selectedProfile);
+    }
+
+    setProfileSelection(profileName = undefined) {
+        const profileSelect = document.getElementById('profileSelect');
+        let targetProfile = profileName;
+
+        if (!profileSelect) {
+            this.currentProfile = targetProfile || this.currentProfile || '';
+            this.updateProfileBanner();
+            return;
+        }
+
+        const optionValues = Array.from(profileSelect.options).map(opt => opt.value);
+        if (targetProfile && optionValues.includes(targetProfile)) {
+            profileSelect.value = targetProfile;
+        } else if (profileSelect.options.length > 1) {
+            profileSelect.selectedIndex = 1;
+            targetProfile = profileSelect.value;
+        } else {
+            profileSelect.selectedIndex = 0;
+            targetProfile = '';
+        }
+
+        this.currentProfile = targetProfile || '';
+        this.updateProfileBanner();
+    }
+
+    async handleProfileSelection() {
+        const profileSelect = document.getElementById('profileSelect');
+        const profileName = profileSelect ? profileSelect.value : '';
+        if (!profileName) {
+            return;
+        }
+
+        const result = await this.apiCall('profiles/select', 'POST', { profileName });
+        if (result && result.success) {
+            const appliedProfile = result.currentProfile || profileName;
+            this.setProfileSelection(appliedProfile);
+
+            if (result.config) {
+                this.populateForm(result.config, { silent: true });
+            } else {
+                await this.refreshConfig(true);
+            }
+
+            this.showNotification(`Profile '${appliedProfile}' loaded`, 'success');
+        }
+    }
+
+    startConfigPolling() {
+        if (this.configPollingTimer) {
+            return;
+        }
+        this.configPollingTimer = setInterval(() => this.refreshConfig(), 5000);
+    }
+
+    stopConfigPolling() {
+        if (!this.configPollingTimer) {
+            return;
+        }
+
+        clearInterval(this.configPollingTimer);
+        this.configPollingTimer = null;
+    }
+
+    async refreshConfig(force = false) {
+        if (!force && this.isUserEditingSetup()) {
+            return;
+        }
+
+        const config = await this.apiCall('config');
+        if (config) {
+            this.populateForm(config, { silent: !force });
+        }
+    }
+
+    isUserEditingSetup() {
+        const active = document.activeElement;
+        if (!active) {
+            return false;
+        }
+
+        const tag = active.tagName;
+        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
+            return active.closest('#setup-tab') !== null;
+        }
+
+        return false;
+    }
+
+    collectCurrentFolderValues(type) {
+        const container = document.getElementById(`${type}Folders`) ||
+                           document.getElementById(`${type.replace('Movies', 'Movie')}Folders`) ||
+                           document.getElementById(`${type.replace('TV', '')}Folders`);
+        if (!container) {
+            return [];
+        }
+
+        const inputs = container.querySelectorAll('input');
+        return Array.from(inputs).map((input, index) => {
+            const value = (input.value || '').trim();
+            if (index === 0 && value.toLowerCase() === 'default') {
+                return '';
+            }
+            return value;
+        });
+    }
+
+    updateProfileBanner() {
+        const banner = document.getElementById('activeProfileDisplay');
+        if (!banner) {
+            return;
+        }
+
+        if (this.currentProfile) {
+            banner.textContent = this.currentProfile;
+            banner.classList.remove('empty');
+        } else {
+            banner.textContent = 'No profile selected';
+            banner.classList.add('empty');
+        }
+    }
+
+
+
+    // Profile Management
+    async loadProfiles(selectedProfile = null) {
+        const profiles = await this.apiCall('profiles');
+        const requestedProfile = selectedProfile ?? this.currentProfile;
+        this.populateProfiles(profiles || [], requestedProfile);
+    }
+
+
     async loadProfile() {
-        const profileName = document.getElementById('profileSelect').value;
+        const profileSelect = document.getElementById('profileSelect');
+        const profileName = profileSelect ? profileSelect.value : '';
         if (!profileName) {
             this.showNotification('Please select a profile', 'warning');
             return;
         }
 
-        const config = await this.apiCall(`profiles/${profileName}`);
-        if (config) {
-            this.populateForm(config);
-            this.showNotification('Profile loaded successfully', 'success');
-        }
+        await this.handleProfileSelection();
     }
 
+
     async saveProfile() {
-        const profileName = document.getElementById('newProfileName').value.trim() ||
-                           document.getElementById('profileSelect').value;
+        const profileSelect = document.getElementById('profileSelect');
+        const profileName = document.getElementById('newProfileName').value.trim() || (profileSelect ? profileSelect.value : '');
 
         if (!profileName) {
             this.showNotification('Please enter a profile name', 'warning');
@@ -165,30 +358,35 @@ class SortarrWeb {
         }
 
         const config = this.getFormData();
-        const result = await this.apiCall(`profiles/${profileName}`, 'POST', config);
+        const result = await this.apiCall(`profiles/${encodeURIComponent(profileName)}`, 'POST', config);
 
         if (result && result.success) {
-            this.showNotification('Profile saved successfully', 'success');
-            this.loadProfiles();
             document.getElementById('newProfileName').value = '';
+            await this.loadProfiles(profileName);
+            await this.refreshConfig(true);
+            this.showNotification('Profile saved successfully', 'success');
         }
     }
 
+
     async deleteProfile() {
-        const profileName = document.getElementById('profileSelect').value;
+        const profileSelect = document.getElementById('profileSelect');
+        const profileName = profileSelect ? profileSelect.value : '';
         if (!profileName) {
             this.showNotification('Please select a profile to delete', 'warning');
             return;
         }
 
         if (confirm(`Are you sure you want to delete profile "${profileName}"?`)) {
-            const result = await this.apiCall(`profiles/${profileName}`, 'DELETE');
+            const result = await this.apiCall(`profiles/${encodeURIComponent(profileName)}`, 'DELETE');
             if (result && result.success) {
+                await this.loadProfiles();
+                await this.refreshConfig(true);
                 this.showNotification('Profile deleted successfully', 'success');
-                this.loadProfiles();
             }
         }
     }
+
 
     // Operations
     async runSortarr() {
@@ -219,183 +417,239 @@ class SortarrWeb {
 
     // Configuration
     async loadConfiguration() {
-        const config = await this.apiCall('config');
-        if (config) {
-            this.populateForm(config);
-        }
+        await this.refreshConfig(true);
     }
+
 
     async saveConfiguration() {
         const config = this.getFormData();
         const result = await this.apiCall('config', 'POST', config);
 
         if (result && result.success) {
+            if (result.config) {
+                this.populateForm(result.config, { silent: true });
+            } else {
+                await this.refreshConfig(true);
+            }
+
             this.showNotification('Configuration saved successfully', 'success');
         }
     }
 
+
     getFormData() {
+        const hdMovieCount = parseInt(document.getElementById('hdMovieCount').value, 10) || 1;
+        const movie4kCount = parseInt(document.getElementById('movieCount4K').value, 10) || 1;
+        const hdTvCount = parseInt(document.getElementById('hdTVCount').value, 10) || 1;
+        const tv4kCount = parseInt(document.getElementById('tvCount4K').value, 10) || 1;
+
         return {
+            currentProfile: this.currentProfile,
             filebotPath: document.getElementById('filebotPath').value,
             downloadsFolder: document.getElementById('downloadsFolder').value,
 
             // HD Movies
             enableHDMovies: document.getElementById('enableHDMovies').checked,
-            hdMovieCount: parseInt(document.getElementById('hdMovieCount').value),
-            hdMovieFolders: this.getFolderValues('hdMovies'),
+            hdMovieCount,
+            hdMovieFolders: this.getFolderValues('hdMovies', hdMovieCount),
 
             // 4K Movies
             enable4KMovies: document.getElementById('enable4KMovies').checked,
-            movieCount4K: parseInt(document.getElementById('movieCount4K').value),
-            movieFolders4K: this.getFolderValues('4kMovies'),
+            movieCount4K: movie4kCount,
+            movieFolders4K: this.getFolderValues('4kMovies', movie4kCount),
 
             // HD TV
             enableHDTV: document.getElementById('enableHDTV').checked,
-            hdTVCount: parseInt(document.getElementById('hdTVCount').value),
-            hdTVFolders: this.getFolderValues('hdTV'),
+            hdTVCount: hdTvCount,
+            hdTVFolders: this.getFolderValues('hdTV', hdTvCount),
 
             // 4K TV
             enable4KTV: document.getElementById('enable4KTV').checked,
-            tvCount4K: parseInt(document.getElementById('tvCount4K').value),
-            tvFolders4K: this.getFolderValues('4kTV'),
+            tvCount4K: tv4kCount,
+            tvFolders4K: this.getFolderValues('4kTV', tv4kCount),
 
             // Advanced
             enableScheduling: document.getElementById('enableScheduling').checked,
-            scheduleInterval: parseInt(document.getElementById('scheduleInterval').value),
+            scheduleInterval: parseInt(document.getElementById('scheduleInterval').value, 10) || 1,
             enableOverrides: document.getElementById('enableOverrides').checked,
             movieFormatOverride: document.getElementById('movieFormatOverride').value,
             tvFormatOverride: document.getElementById('tvFormatOverride').value,
             enableRemoteConfig: document.getElementById('enableRemoteConfig').checked,
-            serverPort: parseInt(document.getElementById('serverPort').value),
+            serverPort: parseInt(document.getElementById('serverPort').value, 10) || 6969,
             enableSystemTray: document.getElementById('enableSystemTray').checked
         };
     }
 
-    getFolderValues(type) {
-        const count = parseInt(document.getElementById(`${type}Count`).value) ||
-                     parseInt(document.getElementById(`${type.replace('Movies', 'Movie')}Count`).value) ||
-                     parseInt(document.getElementById(`${type.replace('TV', '')}Count`).value) || 1;
 
-        const folders = [];
-        for (let i = 1; i <= count; i++) {
+    getFolderValues(type, count) {
+        const safeCount = Math.max(1, count || 1);
+        const values = [];
+
+        for (let i = 1; i <= safeCount; i++) {
             const element = document.getElementById(`${type}Folder${i}`) ||
                            document.getElementById(`${type.replace('Movies', 'Movie')}Folder${i}`) ||
-                           document.getElementById(`${type}Folder${i}`);
-            if (element && element.value) {
-                folders.push(element.value);
+                           document.getElementById(`${type.replace('TV', '')}Folder${i}`);
+
+            let value = element ? element.value.trim() : '';
+            if (i === 1 && value.toLowerCase() === 'default') {
+                value = '';
             }
+
+            values.push(value);
         }
-        return folders;
+
+        return values;
     }
 
-    populateForm(config) {
-        // Basic paths
-        if (config.filebotPath) document.getElementById('filebotPath').value = config.filebotPath;
-        if (config.downloadsFolder) document.getElementById('downloadsFolder').value = config.downloadsFolder;
 
-        // HD Movies
-        if (config.enableHDMovies !== undefined) document.getElementById('enableHDMovies').checked = config.enableHDMovies;
-        if (config.hdMovieCount) document.getElementById('hdMovieCount').value = config.hdMovieCount;
-
-        // 4K Movies
-        if (config.enable4KMovies !== undefined) document.getElementById('enable4KMovies').checked = config.enable4KMovies;
-        if (config.movieCount4K) document.getElementById('movieCount4K').value = config.movieCount4K;
-
-        // HD TV
-        if (config.enableHDTV !== undefined) document.getElementById('enableHDTV').checked = config.enableHDTV;
-        if (config.hdTVCount) document.getElementById('hdTVCount').value = config.hdTVCount;
-
-        // 4K TV
-        if (config.enable4KTV !== undefined) document.getElementById('enable4KTV').checked = config.enable4KTV;
-        if (config.tvCount4K) document.getElementById('tvCount4K').value = config.tvCount4K;
-
-        // Advanced
-        if (config.enableScheduling !== undefined) {
-            document.getElementById('enableScheduling').checked = config.enableScheduling;
-            document.getElementById('schedulingControls').style.display = config.enableScheduling ? 'block' : 'none';
+    populateForm(config = {}, options = {}) {
+        if (!config) {
+            return;
         }
-        if (config.scheduleInterval) document.getElementById('scheduleInterval').value = config.scheduleInterval;
 
-        if (config.enableOverrides !== undefined) {
-            document.getElementById('enableOverrides').checked = config.enableOverrides;
-            document.getElementById('overrideControls').style.display = config.enableOverrides ? 'block' : 'none';
+        const { silent = false } = options;
+
+        const setValue = (id, value) => {
+            const element = document.getElementById(id);
+            if (!element || value === undefined || value === null) {
+                return;
+            }
+
+            if (element.tagName === 'SELECT') {
+                element.value = String(value);
+            } else {
+                element.value = value;
+            }
+        };
+
+        const setCheckbox = (id, value) => {
+            if (typeof value !== 'boolean') {
+                return;
+            }
+            const element = document.getElementById(id);
+            if (element) {
+                element.checked = value;
+            }
+        };
+
+        const sanitizeCount = (value, fallback) => {
+            const parsed = parseInt(value, 10);
+            if (Number.isFinite(parsed) && parsed > 0) {
+                return parsed;
+            }
+            return Math.max(1, fallback || 1);
+        };
+
+        if ('filebotPath' in config) setValue('filebotPath', config.filebotPath || '');
+        if ('downloadsFolder' in config) setValue('downloadsFolder', config.downloadsFolder || '');
+
+        setCheckbox('enableHDMovies', config.enableHDMovies);
+        setCheckbox('enable4KMovies', config.enable4KMovies);
+        setCheckbox('enableHDTV', config.enableHDTV);
+        setCheckbox('enable4KTV', config.enable4KTV);
+        setCheckbox('enableScheduling', config.enableScheduling);
+        setCheckbox('enableOverrides', config.enableOverrides);
+        setCheckbox('enableRemoteConfig', config.enableRemoteConfig);
+        setCheckbox('enableSystemTray', config.enableSystemTray);
+
+        const currentHdMovies = parseInt(document.getElementById('hdMovieCount').value, 10) || 1;
+        const current4kMovies = parseInt(document.getElementById('movieCount4K').value, 10) || 1;
+        const currentHdTv = parseInt(document.getElementById('hdTVCount').value, 10) || 1;
+        const current4kTv = parseInt(document.getElementById('tvCount4K').value, 10) || 1;
+
+        const hdMovieCount = sanitizeCount(config.hdMovieCount, currentHdMovies);
+        const movie4kCount = sanitizeCount(config.movieCount4K, current4kMovies);
+        const hdTvCount = sanitizeCount(config.hdTVCount, currentHdTv);
+        const tv4kCount = sanitizeCount(config.tvCount4K, current4kTv);
+
+        setValue('hdMovieCount', hdMovieCount);
+        setValue('movieCount4K', movie4kCount);
+        setValue('hdTVCount', hdTvCount);
+        setValue('tvCount4K', tv4kCount);
+
+        const hdMovieFolders = Array.isArray(config.hdMovieFolders) ? config.hdMovieFolders : this.collectCurrentFolderValues('hdMovies');
+        const movie4kFolders = Array.isArray(config.movieFolders4K) ? config.movieFolders4K : this.collectCurrentFolderValues('4kMovies');
+        const hdTvFolders = Array.isArray(config.hdTVFolders) ? config.hdTVFolders : this.collectCurrentFolderValues('hdTV');
+        const tv4kFolders = Array.isArray(config.tvFolders4K) ? config.tvFolders4K : this.collectCurrentFolderValues('4kTV');
+
+        this.updateFolderInputs('hdMovies', hdMovieCount, hdMovieFolders);
+        this.updateFolderInputs('4kMovies', movie4kCount, movie4kFolders);
+        this.updateFolderInputs('hdTV', hdTvCount, hdTvFolders);
+        this.updateFolderInputs('4kTV', tv4kCount, tv4kFolders);
+
+        if ('scheduleInterval' in config) {
+            const interval = Math.max(1, parseInt(config.scheduleInterval, 10) || 1);
+            setValue('scheduleInterval', interval);
         }
-        if (config.movieFormatOverride) document.getElementById('movieFormatOverride').value = config.movieFormatOverride;
-        if (config.tvFormatOverride) document.getElementById('tvFormatOverride').value = config.tvFormatOverride;
-
-        if (config.enableRemoteConfig !== undefined) {
-            document.getElementById('enableRemoteConfig').checked = config.enableRemoteConfig;
-            document.getElementById('remoteControls').style.display = config.enableRemoteConfig ? 'block' : 'none';
+        if ('movieFormatOverride' in config) setValue('movieFormatOverride', config.movieFormatOverride || '');
+        if ('tvFormatOverride' in config) setValue('tvFormatOverride', config.tvFormatOverride || '');
+        if ('serverPort' in config) {
+            const port = parseInt(config.serverPort, 10) || 6969;
+            setValue('serverPort', port);
         }
-        if (config.serverPort) document.getElementById('serverPort').value = config.serverPort;
-        if (config.enableSystemTray !== undefined) document.getElementById('enableSystemTray').checked = config.enableSystemTray;
 
-        // Update folder inputs
-        this.updateFolderInputs('hdMovies', config.hdMovieCount || 1);
-        this.updateFolderInputs('4kMovies', config.movieCount4K || 1);
-        this.updateFolderInputs('hdTV', config.hdTVCount || 1);
-        this.updateFolderInputs('4kTV', config.tvCount4K || 1);
+        const schedulingControls = document.getElementById('schedulingControls');
+        if (schedulingControls) {
+            schedulingControls.style.display = document.getElementById('enableScheduling').checked ? 'block' : 'none';
+        }
 
-        // Populate folder values after creating inputs
-        setTimeout(() => {
-            // HD Movies folders
-            if (config.hdMovieFolders) {
-                config.hdMovieFolders.forEach((folder, index) => {
-                    const input = document.getElementById(`hdMoviesFolder${index + 1}`);
-                    if (input) input.value = folder;
-                });
-            }
+        const overrideControls = document.getElementById('overrideControls');
+        if (overrideControls) {
+            overrideControls.style.display = document.getElementById('enableOverrides').checked ? 'block' : 'none';
+        }
 
-            // 4K Movies folders
-            if (config.movieFolders4K) {
-                config.movieFolders4K.forEach((folder, index) => {
-                    const input = document.getElementById(`4kMoviesFolder${index + 1}`);
-                    if (input) input.value = folder;
-                });
-            }
+        const remoteControls = document.getElementById('remoteControls');
+        if (remoteControls) {
+            remoteControls.style.display = document.getElementById('enableRemoteConfig').checked ? 'block' : 'none';
+        }
 
-            // HD TV folders
-            if (config.hdTVFolders) {
-                config.hdTVFolders.forEach((folder, index) => {
-                    const input = document.getElementById(`hdTVFolder${index + 1}`);
-                    if (input) input.value = folder;
-                });
-            }
-
-            // 4K TV folders
-            if (config.tvFolders4K) {
-                config.tvFolders4K.forEach((folder, index) => {
-                    const input = document.getElementById(`4kTVFolder${index + 1}`);
-                    if (input) input.value = folder;
-                });
-            }
-        }, 100); // Small delay to ensure DOM elements are created
+        if (config.currentProfile !== undefined) {
+            this.setProfileSelection(config.currentProfile);
+        } else if (!silent) {
+            this.updateProfileBanner();
+        }
     }
+
 
     // Folder Management
-    updateFolderInputs(type, count) {
-        const container = document.getElementById(`${type}Folders`);
-        if (!container) return;
+    updateFolderInputs(type, count, values = []) {
+        const container = document.getElementById(`${type}Folders`) ||
+                           document.getElementById(`${type.replace('Movies', 'Movie')}Folders`) ||
+                           document.getElementById(`${type.replace('TV', '')}Folders`);
+        if (!container) {
+            return;
+        }
 
+        const safeCount = Math.max(1, count || 1);
+        const normalizedValues = Array.isArray(values) ? values : [];
         container.innerHTML = '';
 
-        for (let i = 1; i <= count; i++) {
+        for (let i = 1; i <= safeCount; i++) {
             const div = document.createElement('div');
             div.className = 'input-group';
 
-            const typeLabel = type.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
-
+            const typeLabel = type.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase());
+            const inputId = `${type}Folder${i}`;
             div.innerHTML = `
                 <label>${typeLabel} Folder ${i}:</label>
                 <div class="path-input-group">
-                    <input type="text" id="${type}Folder${i}" placeholder="Select destination folder...">
-                    <button class="btn btn-browse" onclick="browseFolder('${type}Folder${i}')">Browse</button>
+                    <input type="text" id="${inputId}" placeholder="Select destination folder...">
+                    <button class="btn btn-browse" onclick="browseFolder('${inputId}')">Browse</button>
                 </div>
             `;
 
             container.appendChild(div);
+
+            const input = div.querySelector('input');
+            const value = normalizedValues[i - 1];
+            if (value) {
+                input.value = value;
+            } else if (i === 1) {
+                input.value = 'Default';
+            }
         }
     }
+
 
     // Scheduling
     async createScheduledTask() {
@@ -631,7 +885,9 @@ function browseFolder(targetId) {
 }
 
 function updateFolderInputs(type, count) {
-    window.sortarrWeb.updateFolderInputs(type, count);
+    const value = parseInt(count, 10) || 1;
+    const existing = window.sortarrWeb.collectCurrentFolderValues(type);
+    window.sortarrWeb.updateFolderInputs(type, value, existing);
 }
 
 function closeFileBrowser() {
