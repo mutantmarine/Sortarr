@@ -90,7 +90,9 @@
         private System.Windows.Forms.Label overrideTVShowsTxt;
         private System.Windows.Forms.TextBox overrideTVShowsTextBox;
         private System.Windows.Forms.GroupBox groupBoxRemoteConfig;
+        private System.Windows.Forms.GroupBox groupBoxTraySettings;
         private System.Windows.Forms.CheckBox checkboxEnableRemoteConfig;
+        private System.Windows.Forms.CheckBox checkboxMinimizeToTray;
         private System.Windows.Forms.Label sortarrPortTxt;
         private System.Windows.Forms.Button openLocalHostBtn;
         private System.Windows.Forms.Button donateBtn;
@@ -187,16 +189,18 @@
             this.overrideMoviesTextBox = new System.Windows.Forms.TextBox();
             this.overrideTVShowsTxt = new System.Windows.Forms.Label();
             this.overrideTVShowsTextBox = new System.Windows.Forms.TextBox();
+            this.groupBoxTraySettings = new System.Windows.Forms.GroupBox();
+            this.checkboxMinimizeToTray = new System.Windows.Forms.CheckBox();
             this.groupBoxRemoteConfig = new System.Windows.Forms.GroupBox();
             this.checkboxEnableRemoteConfig = new System.Windows.Forms.CheckBox();
             this.sortarrPortTxt = new System.Windows.Forms.Label();
             this.openLocalHostBtn = new System.Windows.Forms.Button();
             this.donateBtn = new System.Windows.Forms.Button();
             this.tabInstructions = new System.Windows.Forms.TabPage();
+            this.instructionsLabel4 = new System.Windows.Forms.Label();
             this.instructionsLabel3 = new System.Windows.Forms.Label();
             this.instructionsLabel1 = new System.Windows.Forms.Label();
             this.instructionsLabel2 = new System.Windows.Forms.Label();
-            this.instructionsLabel4 = new System.Windows.Forms.Label();
             this.tabControlSortarr.SuspendLayout();
             this.tabMain.SuspendLayout();
             this.tabSetup.SuspendLayout();
@@ -214,6 +218,7 @@
             this.groupBoxScheduling.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.numericUpDownSchedule)).BeginInit();
             this.groupBoxOverride.SuspendLayout();
+            this.groupBoxTraySettings.SuspendLayout();
             this.groupBoxRemoteConfig.SuspendLayout();
             this.tabInstructions.SuspendLayout();
             this.SuspendLayout();
@@ -887,6 +892,7 @@
             this.tabAdvanced.Controls.Add(this.buyCoffeeTxt);
             this.tabAdvanced.Controls.Add(this.groupBoxScheduling);
             this.tabAdvanced.Controls.Add(this.groupBoxOverride);
+            this.tabAdvanced.Controls.Add(this.groupBoxTraySettings);
             this.tabAdvanced.Controls.Add(this.groupBoxRemoteConfig);
             this.tabAdvanced.Controls.Add(this.donateBtn);
             this.tabAdvanced.Location = new System.Drawing.Point(4, 22);
@@ -900,7 +906,7 @@
             // buyCoffeeTxt
             // 
             this.buyCoffeeTxt.AutoSize = true;
-            this.buyCoffeeTxt.Location = new System.Drawing.Point(17, 393);
+            this.buyCoffeeTxt.Location = new System.Drawing.Point(17, 483);
             this.buyCoffeeTxt.Name = "buyCoffeeTxt";
             this.buyCoffeeTxt.Size = new System.Drawing.Size(642, 13);
             this.buyCoffeeTxt.TabIndex = 3;
@@ -1023,6 +1029,25 @@
             this.overrideTVShowsTextBox.Size = new System.Drawing.Size(301, 20);
             this.overrideTVShowsTextBox.TabIndex = 2;
             // 
+            // groupBoxTraySettings
+            // 
+            this.groupBoxTraySettings.Controls.Add(this.checkboxMinimizeToTray);
+            this.groupBoxTraySettings.Location = new System.Drawing.Point(20, 350);
+            this.groupBoxTraySettings.Name = "groupBoxTraySettings";
+            this.groupBoxTraySettings.Size = new System.Drawing.Size(952, 80);
+            this.groupBoxTraySettings.TabIndex = 3;
+            this.groupBoxTraySettings.TabStop = false;
+            this.groupBoxTraySettings.Text = "System Tray";
+            // 
+            // checkboxMinimizeToTray
+            // 
+            this.checkboxMinimizeToTray.Location = new System.Drawing.Point(10, 30);
+            this.checkboxMinimizeToTray.Name = "checkboxMinimizeToTray";
+            this.checkboxMinimizeToTray.Size = new System.Drawing.Size(200, 30);
+            this.checkboxMinimizeToTray.TabIndex = 0;
+            this.checkboxMinimizeToTray.Text = "Minimize to System Tray";
+            this.checkboxMinimizeToTray.UseVisualStyleBackColor = true;
+            // 
             // groupBoxRemoteConfig
             // 
             this.groupBoxRemoteConfig.Controls.Add(this.checkboxEnableRemoteConfig);
@@ -1056,16 +1081,16 @@
             this.openLocalHostBtn.Location = new System.Drawing.Point(380, 30);
             this.openLocalHostBtn.Name = "openLocalHostBtn";
             this.openLocalHostBtn.Size = new System.Drawing.Size(150, 30);
-            this.openLocalHostBtn.TabIndex = 1;
+            this.openLocalHostBtn.TabIndex = 2;
             this.openLocalHostBtn.Text = "Open Configuration Page";
             this.openLocalHostBtn.UseVisualStyleBackColor = true;
             // 
             // donateBtn
             // 
-            this.donateBtn.Location = new System.Drawing.Point(20, 350);
+            this.donateBtn.Location = new System.Drawing.Point(20, 450);
             this.donateBtn.Name = "donateBtn";
             this.donateBtn.Size = new System.Drawing.Size(150, 30);
-            this.donateBtn.TabIndex = 0;
+            this.donateBtn.TabIndex = 4;
             this.donateBtn.Text = "Donate";
             this.donateBtn.UseVisualStyleBackColor = true;
             // 
@@ -1082,6 +1107,15 @@
             this.tabInstructions.TabIndex = 3;
             this.tabInstructions.Text = "Instructions";
             this.tabInstructions.UseVisualStyleBackColor = true;
+            // 
+            // instructionsLabel4
+            // 
+            this.instructionsLabel4.Location = new System.Drawing.Point(20, 330);
+            this.instructionsLabel4.Name = "instructionsLabel4";
+            this.instructionsLabel4.Size = new System.Drawing.Size(952, 100);
+            this.instructionsLabel4.TabIndex = 3;
+            this.instructionsLabel4.Text = "4. Thanks again for trying my program. I\'ll try to add more capabilities if peopl" +
+    "e find this to be useful.";
             // 
             // instructionsLabel3
             // 
@@ -1106,15 +1140,6 @@
             this.instructionsLabel2.Size = new System.Drawing.Size(952, 100);
             this.instructionsLabel2.TabIndex = 1;
             this.instructionsLabel2.Text = resources.GetString("instructionsLabel2.Text");
-            // 
-            // instructionsLabel4
-            // 
-            this.instructionsLabel4.Location = new System.Drawing.Point(20, 330);
-            this.instructionsLabel4.Name = "instructionsLabel4";
-            this.instructionsLabel4.Size = new System.Drawing.Size(952, 100);
-            this.instructionsLabel4.TabIndex = 3;
-            this.instructionsLabel4.Text = "4. Thanks again for trying my program. I\'ll try to add more capabilities if peopl" +
-    "e find this to be useful.";
             // 
             // Sortarr
             // 
@@ -1149,6 +1174,7 @@
             ((System.ComponentModel.ISupportInitialize)(this.numericUpDownSchedule)).EndInit();
             this.groupBoxOverride.ResumeLayout(false);
             this.groupBoxOverride.PerformLayout();
+            this.groupBoxTraySettings.ResumeLayout(false);
             this.groupBoxRemoteConfig.ResumeLayout(false);
             this.tabInstructions.ResumeLayout(false);
             this.ResumeLayout(false);

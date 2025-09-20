@@ -233,7 +233,7 @@ namespace Sortarr
             }
 
             // Initialize advanced checkboxes
-            advancedCheckboxes = new[] { checkboxScheduleTask, checkboxOverrideSortarrParameters, checkboxEnableRemoteConfig };
+            advancedCheckboxes = new[] { checkboxScheduleTask, checkboxOverrideSortarrParameters, checkboxEnableRemoteConfig, checkboxMinimizeToTray };
             foreach (var checkbox in advancedCheckboxes)
                 checkbox.Enabled = false;
 
@@ -338,6 +338,7 @@ namespace Sortarr
             checkboxScheduleTask.CheckedChanged += checkboxScheduleTask_CheckedChanged;
             checkboxOverrideSortarrParameters.CheckedChanged += checkboxOverrideSortarrParameters_CheckedChanged;
             checkboxEnableRemoteConfig.CheckedChanged += checkboxEnableRemoteConfig_CheckedChanged;
+            checkboxMinimizeToTray.CheckedChanged += checkboxMinimizeToTray_CheckedChanged;
             automateBtn.Click += automateBtn_Click;
             removeSortarrAutomation.Click += removeSortarrAutomation_Click;
             donateBtn.Click += donateBtn_Click;
@@ -462,6 +463,20 @@ namespace Sortarr
                 StartHttpServer();
             else
                 StopHttpServer();
+        }
+
+        private void checkboxMinimizeToTray_CheckedChanged(object sender, EventArgs e)
+        {
+            minimizeToTray = checkboxMinimizeToTray.Checked;
+
+            if (!minimizeToTray && notifyIcon != null)
+            {
+                if (notifyIcon.Visible)
+                    ShowFromTray();
+
+                notifyIcon.Visible = false;
+                allowVisible = true;
+            }
         }
 
         private void StartHttpServer()
@@ -1020,6 +1035,7 @@ namespace Sortarr
         {
             return ExecuteOnUiThread(() =>
             {
+                minimizeToTray = checkboxMinimizeToTray.Checked;
                 var (hdMovieCheck, hdMovieUpDown, hdMovieTextBoxes, _, _) = mediaControls["HDMovie"];
                 var (movie4kCheck, movie4kUpDown, movie4kTextBoxes, _, _) = mediaControls["4KMovie"];
                 var (hdTvCheck, hdTvUpDown, hdTvTextBoxes, _, _) = mediaControls["HDTVShow"];
@@ -1060,7 +1076,7 @@ namespace Sortarr
                     TvFormatOverride = overrideTVShowsTextBox.Text,
                     EnableRemoteConfig = checkboxEnableRemoteConfig.Checked,
                     ServerPort = 6969,
-                    EnableSystemTray = minimizeToTray,
+                    EnableSystemTray = checkboxMinimizeToTray.Checked,
                     CurrentProfile = profileSelector.Text
                 };
 
@@ -1132,7 +1148,7 @@ namespace Sortarr
                     checkboxEnableRemoteConfig.Checked = update.EnableRemoteConfig.Value;
 
                 if (update.EnableSystemTray.HasValue)
-                    minimizeToTray = update.EnableSystemTray.Value;
+                    checkboxMinimizeToTray.Checked = update.EnableSystemTray.Value;
 
                 if (!string.IsNullOrWhiteSpace(update.CurrentProfile) && profileSelector.Items.Contains(update.CurrentProfile))
                     profileSelector.SelectedItem = update.CurrentProfile;
@@ -1920,7 +1936,10 @@ namespace Sortarr
         private void TrayExit_Click(object sender, EventArgs e)
         {
             allowVisible = false;
-            minimizeToTray = false;
+            if (checkboxMinimizeToTray != null)
+                checkboxMinimizeToTray.Checked = false;
+            else
+                minimizeToTray = false;
             notifyIcon.Visible = false;
             Application.Exit();
         }
@@ -1995,7 +2014,7 @@ namespace Sortarr
                 "OverrideMoviesFormat=" + overrideMoviesTextBox.Text,
                 "OverrideTVShowsFormat=" + overrideTVShowsTextBox.Text,
                 "RemoteConfigEnabled=" + checkboxEnableRemoteConfig.Checked,
-                "MinimizeToTray=" + minimizeToTray
+                "MinimizeToTray=" + checkboxMinimizeToTray.Checked
             };
         }
 
@@ -2090,10 +2109,8 @@ namespace Sortarr
                 checkboxEnableRemoteConfig.Checked = settings.ContainsKey("RemoteConfigEnabled") && bool.Parse(settings["RemoteConfigEnabled"]);
 
                 // Load tray preference
-                if (settings.ContainsKey("MinimizeToTray"))
-                {
-                    minimizeToTray = bool.Parse(settings["MinimizeToTray"]);
-                }
+                minimizeToTray = settings.ContainsKey("MinimizeToTray") && bool.Parse(settings["MinimizeToTray"]);
+                checkboxMinimizeToTray.Checked = minimizeToTray;
 
                 // Update sortarrPortTxt visibility based on checkboxEnableRemoteConfig
                 sortarrPortTxt.Visible = checkboxEnableRemoteConfig.Checked;
@@ -2781,7 +2798,10 @@ namespace Sortarr
                     if (result == DialogResult.Yes)
                     {
                         // Enable minimize to tray and minimize
-                        minimizeToTray = true;
+                        if (checkboxMinimizeToTray != null)
+                            checkboxMinimizeToTray.Checked = true;
+                        else
+                            minimizeToTray = true;
                         e.Cancel = true;
                         MinimizeToTray();
                         LogMessage("Minimize to tray enabled and application minimized.");
@@ -2834,5 +2854,3 @@ namespace Sortarr
         }
     }
 }
-
-

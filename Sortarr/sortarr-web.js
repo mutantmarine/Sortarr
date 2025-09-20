@@ -51,71 +51,98 @@ class SortarrWeb {
             profileSelect.addEventListener('change', () => this.handleProfileSelection());
         }
 
+        const bindClick = (id, handler) => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.addEventListener('click', handler);
+            }
+        };
+
+        const bindChange = (id, handler) => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.addEventListener('change', handler);
+            }
+        };
+
         // Profile Management
-        document.getElementById('loadProfileBtn').addEventListener('click', () => this.loadProfile());
-        document.getElementById('saveProfileBtn').addEventListener('click', () => this.saveProfile());
-        document.getElementById('deleteProfileBtn').addEventListener('click', () => this.deleteProfile());
+        bindClick('loadProfileBtn', () => this.loadProfile());
+        bindClick('saveProfileBtn', () => this.saveProfile());
+        bindClick('deleteProfileBtn', () => this.deleteProfile());
 
         // Operations
-        document.getElementById('runSortarrBtn').addEventListener('click', () => this.runSortarr());
-        document.getElementById('stopSortarrBtn').addEventListener('click', () => this.stopSortarr());
+        bindClick('runSortarrBtn', () => this.runSortarr());
+        bindClick('stopSortarrBtn', () => this.stopSortarr());
 
         // Log Controls
-        document.getElementById('clearLogBtn').addEventListener('click', () => this.clearLog());
-        document.getElementById('refreshLogBtn').addEventListener('click', () => this.refreshLog());
-        document.getElementById('autoRefreshLog').addEventListener('change', (e) => {
-            if (e.target.checked) {
-                this.startLogPolling();
-            } else {
-                this.stopLogPolling();
-            }
-        });
+        bindClick('clearLogBtn', () => this.clearLog());
+        bindClick('refreshLogBtn', () => this.refreshLog());
+        const autoRefreshLog = document.getElementById('autoRefreshLog');
+        if (autoRefreshLog) {
+            autoRefreshLog.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    this.startLogPolling();
+                } else {
+                    this.stopLogPolling();
+                }
+            });
+        }
 
         // Configuration
-        document.getElementById('saveConfigBtn').addEventListener('click', () => this.saveConfiguration());
+        bindClick('saveConfigBtn', () => this.saveConfiguration());
 
         // Advanced Controls
-        document.getElementById('enableScheduling').addEventListener('change', (e) => {
-            document.getElementById('schedulingControls').style.display = e.target.checked ? 'block' : 'none';
-        });
+        const enableScheduling = document.getElementById('enableScheduling');
+        if (enableScheduling) {
+            enableScheduling.addEventListener('change', (e) => {
+                const schedulingControls = document.getElementById('schedulingControls');
+                if (schedulingControls) {
+                    schedulingControls.style.display = e.target.checked ? 'block' : 'none';
+                }
+            });
+        }
 
-        document.getElementById('enableOverrides').addEventListener('change', (e) => {
-            document.getElementById('overrideControls').style.display = e.target.checked ? 'block' : 'none';
-        });
+        const enableOverrides = document.getElementById('enableOverrides');
+        if (enableOverrides) {
+            enableOverrides.addEventListener('change', (e) => {
+                const overrideControls = document.getElementById('overrideControls');
+                if (overrideControls) {
+                    overrideControls.style.display = e.target.checked ? 'block' : 'none';
+                }
+            });
+        }
 
-        document.getElementById('enableRemoteConfig').addEventListener('change', (e) => {
-            document.getElementById('remoteControls').style.display = e.target.checked ? 'block' : 'none';
-        });
-
-        document.getElementById('createTaskBtn').addEventListener('click', () => this.createScheduledTask());
-        document.getElementById('removeTaskBtn').addEventListener('click', () => this.removeScheduledTask());
+        bindClick('createTaskBtn', () => this.createScheduledTask());
+        bindClick('removeTaskBtn', () => this.removeScheduledTask());
 
         // Support
-        document.getElementById('donateBtn').addEventListener('click', () => this.openDonationLink());
-        document.getElementById('openLocalBtn').addEventListener('click', () => this.openLocalHost());
+        bindClick('donateBtn', () => this.openDonationLink());
+        bindClick('openLocalBtn', () => this.openLocalHost());
 
         // Folder count changes
-        document.getElementById('hdMovieCount').addEventListener('change', (e) => {
+        bindChange('hdMovieCount', (e) => {
             const newCount = parseInt(e.target.value, 10) || 1;
             const existing = this.collectCurrentFolderValues('hdMovies');
             this.updateFolderInputs('hdMovies', newCount, existing);
         });
-        document.getElementById('movieCount4K').addEventListener('change', (e) => {
+        bindChange('movieCount4K', (e) => {
             const newCount = parseInt(e.target.value, 10) || 1;
             const existing = this.collectCurrentFolderValues('4kMovies');
             this.updateFolderInputs('4kMovies', newCount, existing);
         });
-        document.getElementById('hdTVCount').addEventListener('change', (e) => {
+        bindChange('hdTVCount', (e) => {
             const newCount = parseInt(e.target.value, 10) || 1;
             const existing = this.collectCurrentFolderValues('hdTV');
             this.updateFolderInputs('hdTV', newCount, existing);
         });
-        document.getElementById('tvCount4K').addEventListener('change', (e) => {
+        bindChange('tvCount4K', (e) => {
             const newCount = parseInt(e.target.value, 10) || 1;
             const existing = this.collectCurrentFolderValues('4kTV');
             this.updateFolderInputs('4kTV', newCount, existing);
         });
     }
+
+
 
     // API Communication
     async apiCall(endpoint, method = 'GET', data = null) {
@@ -181,6 +208,8 @@ class SortarrWeb {
         } else {
             await this.refreshConfig(true);
         }
+
+        await this.refreshScheduleStatus();
     }
 
     populateProfiles(profiles = [], selectedProfile = '') {
@@ -437,6 +466,7 @@ class SortarrWeb {
             }
 
             this.showNotification('Configuration saved successfully', 'success');
+            await this.refreshScheduleStatus();
         }
     }
 
@@ -478,8 +508,6 @@ class SortarrWeb {
             enableOverrides: document.getElementById('enableOverrides').checked,
             movieFormatOverride: document.getElementById('movieFormatOverride').value,
             tvFormatOverride: document.getElementById('tvFormatOverride').value,
-            enableRemoteConfig: document.getElementById('enableRemoteConfig').checked,
-            serverPort: parseInt(document.getElementById('serverPort').value, 10) || 6969,
             enableSystemTray: document.getElementById('enableSystemTray').checked
         };
     }
@@ -553,7 +581,6 @@ class SortarrWeb {
         setCheckbox('enable4KTV', config.enable4KTV);
         setCheckbox('enableScheduling', config.enableScheduling);
         setCheckbox('enableOverrides', config.enableOverrides);
-        setCheckbox('enableRemoteConfig', config.enableRemoteConfig);
         setCheckbox('enableSystemTray', config.enableSystemTray);
 
         const currentHdMovies = parseInt(document.getElementById('hdMovieCount').value, 10) || 1;
@@ -587,11 +614,6 @@ class SortarrWeb {
         }
         if ('movieFormatOverride' in config) setValue('movieFormatOverride', config.movieFormatOverride || '');
         if ('tvFormatOverride' in config) setValue('tvFormatOverride', config.tvFormatOverride || '');
-        if ('serverPort' in config) {
-            const port = parseInt(config.serverPort, 10) || 6969;
-            setValue('serverPort', port);
-        }
-
         const schedulingControls = document.getElementById('schedulingControls');
         if (schedulingControls) {
             schedulingControls.style.display = document.getElementById('enableScheduling').checked ? 'block' : 'none';
@@ -602,10 +624,7 @@ class SortarrWeb {
             overrideControls.style.display = document.getElementById('enableOverrides').checked ? 'block' : 'none';
         }
 
-        const remoteControls = document.getElementById('remoteControls');
-        if (remoteControls) {
-            remoteControls.style.display = document.getElementById('enableRemoteConfig').checked ? 'block' : 'none';
-        }
+        this.updateTaskStatus(config.isTaskScheduled, config.scheduleInterval);
 
         if (config.currentProfile !== undefined) {
             this.setProfileSelection(config.currentProfile);
@@ -657,13 +676,12 @@ class SortarrWeb {
 
     // Scheduling
     async createScheduledTask() {
-        const interval = document.getElementById('scheduleInterval').value;
-        const result = await this.apiCall('schedule/create', 'POST', { interval: parseInt(interval) });
+        const interval = Math.max(1, parseInt(document.getElementById('scheduleInterval').value, 10) || 1);
+        const result = await this.apiCall('schedule/create', 'POST', { interval });
 
         if (result && result.success) {
             this.showNotification('Scheduled task created successfully', 'success');
-            document.getElementById('taskStatus').innerHTML =
-                `<span class="status-dot active"></span> Task scheduled to run every ${interval} minutes`;
+            await this.refreshScheduleStatus();
         }
     }
 
@@ -672,7 +690,51 @@ class SortarrWeb {
 
         if (result && result.success) {
             this.showNotification('Scheduled task removed successfully', 'success');
-            document.getElementById('taskStatus').innerHTML = '';
+            await this.refreshScheduleStatus();
+        }
+    }
+
+    async refreshScheduleStatus() {
+        const status = await this.apiCall('schedule/status');
+        if (!status || !status.success) {
+            return;
+        }
+
+        if (typeof status.interval === 'number') {
+            const intervalInput = document.getElementById('scheduleInterval');
+            if (intervalInput) {
+                intervalInput.value = Math.max(1, status.interval);
+            }
+        }
+
+        if (typeof status.schedulingEnabled === 'boolean') {
+            const enableScheduling = document.getElementById('enableScheduling');
+            if (enableScheduling) {
+                enableScheduling.checked = status.schedulingEnabled;
+            }
+        }
+
+        const schedulingControls = document.getElementById('schedulingControls');
+        if (schedulingControls) {
+            const enableScheduling = document.getElementById('enableScheduling');
+            const isEnabled = enableScheduling ? enableScheduling.checked : false;
+            schedulingControls.style.display = (status.isScheduled || isEnabled) ? 'block' : 'none';
+        }
+
+        this.updateTaskStatus(status.isScheduled, status.interval);
+    }
+
+    updateTaskStatus(isScheduled, interval) {
+        const taskStatus = document.getElementById('taskStatus');
+        if (!taskStatus) {
+            return;
+        }
+
+        if (isScheduled) {
+            const minutes = Math.max(1, parseInt(interval, 10) || 1);
+            taskStatus.innerHTML = `<span class="status-dot active"></span> Task scheduled to run every ${minutes} minutes`;
+        } else {
+            taskStatus.innerHTML = '';
         }
     }
 
@@ -931,3 +993,4 @@ function selectPath() {
 document.addEventListener('DOMContentLoaded', () => {
     window.sortarrWeb = new SortarrWeb();
 });
+
