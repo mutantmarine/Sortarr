@@ -400,6 +400,8 @@ class SortarrWeb {
             document.getElementById('progressContainer').style.display = 'block';
             this.updateStatus('processing', 'Processing...');
             this.startProgressPolling();
+        } else if (result && result.error) {
+            this.showNotification(result.error, 'error');
         }
     }
 
@@ -412,6 +414,8 @@ class SortarrWeb {
             document.getElementById('progressContainer').style.display = 'none';
             this.updateStatus('ready', 'Ready');
             this.stopProgressPolling();
+        } else if (result && result.error) {
+            this.showNotification(result.error, 'warning');
         }
     }
 
@@ -708,17 +712,38 @@ class SortarrWeb {
     startProgressPolling() {
         this.progressInterval = setInterval(async () => {
             const progress = await this.apiCall('progress');
-            if (progress) {
-                this.updateProgress(progress.percentage, progress.currentFile);
+            if (!progress) {
+                return;
+            }
 
-                if (progress.completed) {
-                    this.isRunning = false;
-                    document.getElementById('runSortarrBtn').style.display = 'inline-block';
-                    document.getElementById('stopSortarrBtn').style.display = 'none';
-                    document.getElementById('progressContainer').style.display = 'none';
-                    this.updateStatus('ready', 'Completed');
-                    this.stopProgressPolling();
+            if (typeof progress.percentage === 'number') {
+                this.updateProgress(progress.percentage, progress.currentFile);
+            }
+
+            if (progress.status) {
+                const normalized = progress.status.toLowerCase();
+                const statusType = normalized.includes('error') ? 'error' : (progress.isRunning ? 'processing' : 'ready');
+                this.updateStatus(statusType, progress.status);
+            }
+
+            if (progress.isRunning) {
+                this.isRunning = true;
+                document.getElementById('runSortarrBtn').style.display = 'none';
+                document.getElementById('stopSortarrBtn').style.display = 'inline-block';
+                document.getElementById('progressContainer').style.display = 'block';
+            } else {
+                this.isRunning = false;
+                document.getElementById('runSortarrBtn').style.display = 'inline-block';
+                document.getElementById('stopSortarrBtn').style.display = 'none';
+                document.getElementById('progressContainer').style.display = 'none';
+                if (!progress.status) {
+                    this.updateStatus('ready', 'Ready');
                 }
+                this.stopProgressPolling();
+            }
+
+            if (progress.completed) {
+                this.stopProgressPolling();
             }
         }, 1000);
     }

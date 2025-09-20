@@ -24,6 +24,48 @@ namespace Sortarr
         private bool isAutomated = false;
         private HttpListener httpListener;
         private bool isServerRunning = false;
+        private readonly object webProcessingLock = new object();
+        private bool webProcessingIsRunning = false;
+        private string webProcessingStatus = "Ready";
+        private string webProcessingCurrentFile = string.Empty;
+        private DateTime? webProcessingStartedAt = null;
+        private string lastValidationError = string.Empty;
+
+        private void UpdateWebProcessingState(bool? isRunning = null, string status = null, string currentFile = null)
+        {
+            lock (webProcessingLock)
+            {
+                if (isRunning.HasValue)
+                {
+                    webProcessingIsRunning = isRunning.Value;
+                    if (isRunning.Value)
+                    {
+                        webProcessingStartedAt = DateTime.Now;
+                    }
+                }
+
+                if (status != null)
+                {
+                    webProcessingStatus = status;
+                }
+
+                if (currentFile != null)
+                {
+                    webProcessingCurrentFile = currentFile;
+                }
+
+                if (!webProcessingIsRunning && currentFile == null)
+                {
+                    webProcessingCurrentFile = string.Empty;
+                }
+
+                if (!webProcessingIsRunning && status == null)
+                {
+                    webProcessingStatus = "Ready";
+                }
+            }
+        }
+
 
         // Dictionary to map media types to their controls
         private Dictionary<string, (CheckBox CheckBox, NumericUpDown UpDown, TextBox[] TextBoxes, Button[] BrowseButtons, Label LocationLabel)> mediaControls;
@@ -120,6 +162,7 @@ namespace Sortarr
 
             InitializeComponent();
             Directory.CreateDirectory(profilePath);
+            UpdateWebProcessingState(false, "Ready", string.Empty);
 
             // Initialize system tray
             SetupSystemTray();
@@ -829,6 +872,64 @@ namespace Sortarr
                         }
                     }
                 }
+                else if (url == "/api/run" && request.HttpMethod == "POST")
+                {
+                    bool started = false;
+                    string startError = string.Empty;
+
+                    ExecuteOnUiThread(() =>
+                    {
+                        if (webProcessingIsRunning)
+                        {
+                            startError = "Sortarr is already running.";
+                            return;
+                        }
+
+                        if (!ValidateInputs(showErrors: false))
+                        {
+                            startError = string.IsNullOrWhiteSpace(lastValidationError)
+                                ? "Validation failed. Please check Sortarr."
+                                : lastValidationError;
+                            return;
+                        }
+
+                        _ = RunSortarrProcess();
+                        started = true;
+                    });
+
+                    if (!started)
+                    {
+                        response.StatusCode = 400;
+                        jsonResponse = JsonSerializer.Serialize(new { success = false, error = string.IsNullOrWhiteSpace(startError) ? "Unable to start Sortarr." : startError }, jsonOptions);
+                    }
+                    else
+                    {
+                        jsonResponse = JsonSerializer.Serialize(new { success = true }, jsonOptions);
+                    }
+                }
+                else if (url == "/api/progress" && request.HttpMethod == "GET")
+                {
+                    object snapshot;
+                    lock (webProcessingLock)
+                    {
+                        snapshot = new
+                        {
+                            isRunning = webProcessingIsRunning,
+                            status = webProcessingStatus,
+                            currentFile = webProcessingCurrentFile,
+                            startedAt = webProcessingStartedAt,
+                            percentage = webProcessingIsRunning ? 10 : 100,
+                            completed = !webProcessingIsRunning && webProcessingStatus == "Completed"
+                        };
+                    }
+
+                    jsonResponse = JsonSerializer.Serialize(snapshot, jsonOptions);
+                }
+                else if (url == "/api/stop" && request.HttpMethod == "POST")
+                {
+                    response.StatusCode = 400;
+                    jsonResponse = JsonSerializer.Serialize(new { success = false, error = "Stopping Sortarr remotely is not supported yet." }, jsonOptions);
+                }
                 else if (url == "/api/logs" && request.HttpMethod == "GET")
                 {
                     jsonResponse = GetLogsAsJson();
@@ -1268,10 +1369,22 @@ namespace Sortarr
         {
             try
             {
+                logger?.Flush();
+
                 if (File.Exists(logFilePath))
                 {
-                    var allLines = File.ReadAllLines(logFilePath);
-                    var lines = allLines.Length > 50 ? allLines.Skip(allLines.Length - 50).ToArray() : allLines;
+                    var allLines = new List<string>();
+                    using (var stream = new FileStream(logFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    using (var reader = new StreamReader(stream))
+                    {
+                        string line;
+                        while ((line = reader.ReadLine()) != null)
+                        {
+                            allLines.Add(line);
+                        }
+                    }
+
+                    var lines = allLines.Count > 50 ? allLines.Skip(allLines.Count - 50).ToArray() : allLines.ToArray();
                     return System.Text.Json.JsonSerializer.Serialize(lines);
                 }
                 return "[\"No log entries available\"]";
@@ -2012,22 +2125,25 @@ namespace Sortarr
             }
         }
 
-        private bool ValidateInputs()
+        private bool ValidateInputs(bool showErrors = true)
         {
+            lastValidationError = string.Empty;
             if (!File.Exists(sourceFilebotFolder.Text))
             {
+                lastValidationError = "FileBot executable not found at the specified path.";
                 LogMessage("Error: FileBot executable not found.");
                 File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: FileBot executable not found at {sourceFilebotFolder.Text}.\n\n");
-                if (!isAutomated && IsHandleCreated)
+                if (showErrors && !isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show("FileBot executable not found at the specified path.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 return false;
             }
 
             if (!Directory.Exists(sourceDownloadsFolder.Text))
             {
+                lastValidationError = $"Downloads folder not found at {sourceDownloadsFolder.Text}.";
                 LogMessage("Error: Downloads folder not found.");
                 File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: Downloads folder not found at {sourceDownloadsFolder.Text}.\n\n");
-                if (!isAutomated && IsHandleCreated)
+                if (showErrors && !isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show("Downloads folder not found.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 return false;
             }
@@ -2042,9 +2158,10 @@ namespace Sortarr
                     {
                         if (!Directory.Exists(mediaType.Value.TextBoxes[i].Text) || mediaType.Value.TextBoxes[i].Text == "Default")
                         {
+                            lastValidationError = $"{mediaType.Key} folder {i + 1} not found or is set to 'Default'.";
                             LogMessage($"Error: {mediaType.Key} folder {i + 1} not found or is set to 'Default'.");
                             File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: {mediaType.Key} folder {i + 1} not found or is set to 'Default' at {mediaType.Value.TextBoxes[i].Text}.\n\n");
-                            if (!isAutomated && IsHandleCreated)
+                            if (showErrors && !isAutomated && IsHandleCreated)
                                 BeginInvoke((SystemAction)(() => MessageBox.Show($"{mediaType.Key} folder {i + 1} not found or is set to 'Default'.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                             return false;
                         }
@@ -2055,9 +2172,10 @@ namespace Sortarr
 
             if (!hasValidMediaType)
             {
+                lastValidationError = "At least one media type must be enabled with valid folders.";
                 LogMessage("Error: At least one media type must be enabled with valid folders.");
                 File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: At least one media type must be enabled with valid folders.\n\n");
-                if (!isAutomated && IsHandleCreated)
+                if (showErrors && !isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show("At least one media type must be enabled with valid folders.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 return false;
             }
@@ -2097,7 +2215,12 @@ namespace Sortarr
 
         private async Task RunSortarrProcess()
         {
-            LogMessage("Starting Sortarr process (Transfer and Sort)...");
+            bool completedSuccessfully = false;
+            UpdateWebProcessingState(true, "Processing...", string.Empty);
+
+            try
+            {
+                LogMessage("Starting Sortarr process (Transfer and Sort)...");
 
             // Initialize
             fileMappings.Clear();
@@ -2183,6 +2306,7 @@ namespace Sortarr
             foreach (var file in mediaFiles)
             {
                 string filename = Path.GetFileName(file);
+                UpdateWebProcessingState(null, null, filename);
                 LogMessage($"Processing file: {filename}");
 
                 try
@@ -2619,11 +2743,18 @@ namespace Sortarr
             }
 
             // Finalize
+            completedSuccessfully = true;
             LogMessage("Sortarr process completed.");
             logger?.Flush(); // Ensure all logs are written
             if (!isAutomated && IsHandleCreated)
                 BeginInvoke((SystemAction)(() => MessageBox.Show("Sortarr process completed successfully.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information)));
         }
+        finally
+        {
+            UpdateWebProcessingState(false, completedSuccessfully ? "Completed" : "Error", string.Empty);
+        }
+
+    }
 
         private void Sortarr_FormClosing(object sender, FormClosingEventArgs e)
         {
@@ -2703,4 +2834,5 @@ namespace Sortarr
         }
     }
 }
+
 
