@@ -802,7 +802,7 @@ namespace Sortarr
                             return;
                         }
 
-                        _ = RunSortarrProcess();
+                        _ = RunSortarrProcess(startedFromWeb: true);
                         started = true;
                     });
 
@@ -2392,7 +2392,7 @@ namespace Sortarr
             }
         }
 
-        private async Task RunSortarrProcess()
+        private async Task RunSortarrProcess(bool startedFromWeb = false)
         {
             // Check for existing lock before starting
             if (!TryCreateProcessLock())
@@ -2932,7 +2932,8 @@ namespace Sortarr
             completedSuccessfully = true;
             LogMessage("Sortarr process completed.");
             logger?.Flush(); // Ensure all logs are written
-            if (!isAutomated && IsHandleCreated)
+            // Show popup only if not automated, handle exists, not started from web, and not minimized to tray
+            if (!isAutomated && IsHandleCreated && !startedFromWeb && !(notifyIcon?.Visible == true))
                 BeginInvoke((SystemAction)(() => MessageBox.Show("Sortarr process completed successfully.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information)));
         }
         finally
