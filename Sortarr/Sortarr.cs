@@ -20,7 +20,8 @@ namespace Sortarr
     {
         private string[] mediaExtensions = new[] { ".mp4", ".mkv", ".avi", ".mov", ".m4v" };
         private List<(string Original, string Renamed)> fileMappings = new List<(string Original, string Renamed)>();
-        private string logFilePath = Path.Combine(Application.StartupPath, "filebot_log.txt");
+        private string logFilePath = Path.Combine(Application.StartupPath, "sortarr_log.txt");
+        private string lockFilePath = Path.Combine(Application.StartupPath, "sortarr.lock");
         private string settingsFilePath = Path.Combine(Application.StartupPath, "settings.json");
         private bool isAutomated = false;
         private HttpListener httpListener;
@@ -87,17 +88,17 @@ namespace Sortarr
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         };
 
-        // Buffered logging class to optimize file I/O operations
+        // Immediate file logging class to prevent file locking issues
         private class BufferedLogger : IDisposable
         {
-            private readonly StreamWriter writer;
+            private readonly string filePath;
             private readonly object lockObj = new object();
             private string cachedTimestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
             private DateTime lastTimestampUpdate = DateTime.Now;
 
             public BufferedLogger(string filePath)
             {
-                writer = new StreamWriter(filePath, append: true, encoding: Encoding.UTF8) { AutoFlush = false };
+                this.filePath = filePath;
             }
 
             public string GetTimestamp()
@@ -115,7 +116,14 @@ namespace Sortarr
             {
                 lock (lockObj)
                 {
-                    writer.WriteLine($"[{GetTimestamp()}] {message}");
+                    try
+                    {
+                        File.AppendAllText(filePath, $"[{GetTimestamp()}] {message}\n", Encoding.UTF8);
+                    }
+                    catch (IOException)
+                    {
+                        // File is in use, skip this log entry to prevent blocking
+                    }
                 }
             }
 
@@ -123,26 +131,25 @@ namespace Sortarr
             {
                 lock (lockObj)
                 {
-                    writer.WriteLine($"[{GetTimestamp()}] {context}\nException: {error}");
-                    writer.WriteLine();
+                    try
+                    {
+                        File.AppendAllText(filePath, $"[{GetTimestamp()}] {context}\nException: {error}\n\n", Encoding.UTF8);
+                    }
+                    catch (IOException)
+                    {
+                        // File is in use, skip this log entry to prevent blocking
+                    }
                 }
             }
 
             public void Flush()
             {
-                lock (lockObj)
-                {
-                    writer?.Flush();
-                }
+                // No-op since we write immediately
             }
 
             public void Dispose()
             {
-                lock (lockObj)
-                {
-                    writer?.Flush();
-                    writer?.Dispose();
-                }
+                // No resources to dispose since we don't hold file handles
             }
         }
 
@@ -1798,7 +1805,7 @@ namespace Sortarr
                 {
                     string errorMessage = "Sortarr must be run as administrator to remove scheduled tasks.";
                     LogMessage(errorMessage);
-                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Task Removal Error: {errorMessage}\n\n");
+                    // Error already logged via LogMessage
                     if (!isAutomated && IsHandleCreated)
                         BeginInvoke((SystemAction)(() => MessageBox.Show($"{errorMessage}\nRight-click Sortarr.exe and select 'Run as administrator'.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                     return;
@@ -1832,7 +1839,7 @@ namespace Sortarr
             {
                 string errorMessage = $"Failed to remove scheduled task: {ex.Message}\nEnsure Sortarr is running as administrator.";
                 LogMessage(errorMessage);
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Scheduled Task Removal Error: {ex.Message}\n\n");
+                // Error already logged via LogMessage
                 if (!isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show($"{errorMessage}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
             }
@@ -2162,7 +2169,7 @@ namespace Sortarr
             if (!File.Exists(path))
             {
                 LogMessage($"Profile '{profileName}' not found.");
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Profile Load Error: {profileName} not found.\n\n");
+                // Error already logged via LogMessage
                 if (!isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show("Profile not found.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 return;
@@ -2229,7 +2236,7 @@ namespace Sortarr
             catch (Exception ex)
             {
                 LogMessage($"Failed to load profile '{profileName}': {ex.Message}");
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Profile Load Error: {profileName}\nException: {ex.Message}\n\n");
+                // Error already logged via LogMessage
                 if (!isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to load profile '{profileName}': {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
             }
@@ -2260,7 +2267,7 @@ namespace Sortarr
                 lastValidationError = "FileBot executable not found at the specified path.";
                 LogMessage("Error: FileBot executable not found.");
                 string pathForLog = IsPlaceholderText(sourceFilebotFolder, FILEBOT_PLACEHOLDER) ? "[not specified]" : sourceFilebotFolder.Text;
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: FileBot executable not found at {pathForLog}.\n\n");
+                // Error already logged via LogMessage
                 if (showErrors && !isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show("FileBot executable not found at the specified path.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 return false;
@@ -2272,7 +2279,7 @@ namespace Sortarr
                 string pathForError = IsPlaceholderText(sourceDownloadsFolder, DOWNLOADS_PLACEHOLDER) ? "[not specified]" : sourceDownloadsFolder.Text;
                 lastValidationError = $"Downloads folder not found at {pathForError}.";
                 LogMessage("Error: Downloads folder not found.");
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: Downloads folder not found at {pathForError}.\n\n");
+                // Error already logged via LogMessage
                 if (showErrors && !isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show("Downloads folder not found.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 return false;
@@ -2290,7 +2297,7 @@ namespace Sortarr
                         {
                             lastValidationError = $"{mediaType.Key} folder {i + 1} not found or is set to 'Default'.";
                             LogMessage($"Error: {mediaType.Key} folder {i + 1} not found or is set to 'Default'.");
-                            File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: {mediaType.Key} folder {i + 1} not found or is set to 'Default' at {mediaType.Value.TextBoxes[i].Text}.\n\n");
+                            // Error already logged via LogMessage
                             if (showErrors && !isAutomated && IsHandleCreated)
                                 BeginInvoke((SystemAction)(() => MessageBox.Show($"{mediaType.Key} folder {i + 1} not found or is set to 'Default'.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                             return false;
@@ -2304,7 +2311,7 @@ namespace Sortarr
             {
                 lastValidationError = "At least one media type must be enabled with valid folders.";
                 LogMessage("Error: At least one media type must be enabled with valid folders.");
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: At least one media type must be enabled with valid folders.\n\n");
+                // Error already logged via LogMessage
                 if (showErrors && !isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show("At least one media type must be enabled with valid folders.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 return false;
@@ -2343,8 +2350,57 @@ namespace Sortarr
             await RunSortarrProcess();
         }
 
+        private bool TryCreateProcessLock()
+        {
+            try
+            {
+                if (File.Exists(lockFilePath))
+                {
+                    // Check if lock file is stale (older than 5 minutes)
+                    var lockTime = File.GetCreationTime(lockFilePath);
+                    if ((DateTime.Now - lockTime).TotalMinutes > 5)
+                    {
+                        File.Delete(lockFilePath);
+                    }
+                    else
+                    {
+                        return false; // Process is already running
+                    }
+                }
+
+                File.WriteAllText(lockFilePath, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void ReleaseProcessLock()
+        {
+            try
+            {
+                if (File.Exists(lockFilePath))
+                {
+                    File.Delete(lockFilePath);
+                }
+            }
+            catch
+            {
+                // Ignore deletion errors
+            }
+        }
+
         private async Task RunSortarrProcess()
         {
+            // Check for existing lock before starting
+            if (!TryCreateProcessLock())
+            {
+                LogMessage("Sortarr is already running. Please wait for the current process to complete.");
+                return;
+            }
+
             bool completedSuccessfully = false;
             UpdateWebProcessingState(true, "Processing...", string.Empty);
 
@@ -2360,7 +2416,7 @@ namespace Sortarr
             if (!File.Exists(filebotPath))
             {
                 LogMessage("Error: FileBot executable not found.");
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: FileBot executable not found at {filebotPath}.\n\n");
+                // Error already logged via LogMessage
                 if (!isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show("FileBot executable not found at the specified path.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 return;
@@ -2374,7 +2430,7 @@ namespace Sortarr
             catch (Exception ex)
             {
                 LogMessage($"Failed to create base temporary folder {tempBasePath}: {ex.Message}");
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Temp Base Folder Creation Error: {tempBasePath}\nException: {ex.Message}\n\n");
+                // Error already logged via LogMessage
                 if (!isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to create base temporary folder: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 return;
@@ -2397,7 +2453,7 @@ namespace Sortarr
                 catch (Exception ex)
                 {
                     LogMessage($"Failed to create temporary folder {folder}: {ex.Message}");
-                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Temp Folder Creation Error: {folder}\nException: {ex.Message}\n\n");
+                    // Error already logged via LogMessage
                     if (!isAutomated && IsHandleCreated)
                         BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to create temporary folder {folder}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                     return;
@@ -2410,7 +2466,7 @@ namespace Sortarr
             if (mediaFiles.Count == 0)
             {
                 LogMessage("No media files found in the downloads folder.");
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] No media files found in the downloads folder.\n\n");
+                // Message already logged via LogMessage
                 if (!isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show("No media files found in the downloads folder.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning)));
                 return;
@@ -2445,7 +2501,7 @@ namespace Sortarr
                     if (!File.Exists(file))
                     {
                         LogMessage($"Error: File {filename} does not exist.");
-                        File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] File Missing: {filename}\n\n");
+                        // Error already logged via LogMessage
                         continue;
                     }
 
@@ -2456,7 +2512,7 @@ namespace Sortarr
                     catch (Exception ex)
                     {
                         LogMessage($"Error: File {filename} is inaccessible: {ex.Message}");
-                        File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] File: {filename}\nException: {ex.Message}\n\n");
+                        // Error already logged via LogMessage
                         if (!isAutomated && IsHandleCreated)
                             BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to access {filename}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                         continue;
@@ -2472,7 +2528,7 @@ namespace Sortarr
                     if (!Directory.Exists(tempDest))
                     {
                         LogMessage($"Error: Temporary destination folder {tempDest} does not exist.");
-                        File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Temp Folder Missing: {tempDest}\n\n");
+                        // Error already logged via LogMessage
                         if (!isAutomated && IsHandleCreated)
                             BeginInvoke((SystemAction)(() => MessageBox.Show($"Temporary folder {tempDest} does not exist.\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                         continue;
@@ -2527,7 +2583,7 @@ namespace Sortarr
                     if (exitCode != 0)
                     {
                         LogMessage($"FileBot failed for {filename}: {error}");
-                        File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] FileBot Error: {filename}\nError: {error}\n\n");
+                        // Error already logged via LogMessage
                         if (!isAutomated && IsHandleCreated)
                             BeginInvoke((SystemAction)(() => MessageBox.Show($"FileBot failed for {filename}: {error}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                         continue;
@@ -2547,13 +2603,13 @@ namespace Sortarr
                     else
                     {
                         LogMessage($"No new file detected for {filename}. FileBot output: {output}");
-                        File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] No new file detected for {filename}. Output: {output}\n\n");
+                        // Message already logged via LogMessage
                     }
                 }
                 catch (Exception ex)
                 {
                     LogMessage($"Unexpected error processing {filename}: {ex.Message}");
-                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Unexpected Error: {filename}\nException: {ex.Message}\n\n");
+                    // Error already logged via LogMessage
                     if (!isAutomated && IsHandleCreated)
                         BeginInvoke((SystemAction)(() => MessageBox.Show($"Unexpected error processing {filename}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 }
@@ -2577,7 +2633,7 @@ namespace Sortarr
                         {
                             Directory.Move(subfolder, newSubfolderPath);
                             LogMessage($"Cleaned up folder name: {subfolderName} to {newSubfolderName}");
-                            File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Cleaned up folder name: {subfolderName} to {newSubfolderName}\n\n");
+                            // Message already logged via LogMessage
 
                             // Update fileMappings to reflect the new folder path
                             for (int i = 0; i < fileMappings.Count; i++)
@@ -2591,7 +2647,7 @@ namespace Sortarr
                         catch (Exception ex)
                         {
                             LogMessage($"Failed to rename folder {subfolderName} to {newSubfolderName}: {ex.Message}");
-                            File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Folder Rename Error: {subfolderName} to {newSubfolderName}\nException: {ex.Message}\n\n");
+                            // Error already logged via LogMessage
                             if (!isAutomated && IsHandleCreated)
                                 BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to rename folder {subfolderName}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                         }
@@ -2609,7 +2665,7 @@ namespace Sortarr
                 if (finalDestinations.Length == 0)
                 {
                     LogMessage($"No valid destination folders for {mediaType}. Skipping move.");
-                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] No valid destination folders for {mediaType}.\n\n");
+                    // Message already logged via LogMessage
                     continue;
                 }
 
@@ -2636,7 +2692,7 @@ namespace Sortarr
                                     if (string.Equals(existingNoExt, filenameNoExt, StringComparison.OrdinalIgnoreCase))
                                     {
                                         LogMessage($"Duplicate movie found: {filename} in {folder} - deleting temp file");
-                                        File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Duplicate movie found: {filename} in {folder}\n\n");
+                                        // Message already logged via LogMessage
                                         File.Delete(file);
                                         foundDuplicate = true;
                                         break;
@@ -2647,7 +2703,7 @@ namespace Sortarr
                             catch (Exception ex)
                             {
                                 LogMessage($"Error checking duplicates in {folder}: {ex.Message}");
-                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Duplicate Check Error: {folder}\nException: {ex.Message}\n\n");
+                                // Error already logged via LogMessage
                             }
                         }
 
@@ -2662,24 +2718,24 @@ namespace Sortarr
                                 {
                                     File.Delete(finalPath);
                                     LogMessage($"Deleted existing movie file at {finalPath} to allow overwrite.");
-                                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Deleted existing movie file at {finalPath} to allow overwrite.\n\n");
+                                    // Message already logged via LogMessage
                                 }
                                 if (!File.Exists(file))
                                 {
                                     LogMessage($"Error: Source file {file} not found for moving to {finalPath}.");
-                                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Move Error: Source file {file} not found.\n\n");
+                                    // Error already logged via LogMessage
                                     if (!isAutomated && IsHandleCreated)
                                         BeginInvoke((SystemAction)(() => MessageBox.Show($"Source file {file} not found for moving.\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                                     continue;
                                 }
                                 File.Move(file, finalPath);
                                 LogMessage($"Moved movie {filename} to {finalPath}");
-                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Moved movie {filename} to {finalPath}\n\n");
+                                // Message already logged via LogMessage
                             }
                             catch (Exception ex)
                             {
                                 LogMessage($"Failed to move movie {filename} to {finalPath}: {ex.Message}");
-                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Movie Move Error: {filename} to {finalPath}\nException: {ex.Message}\n\n");
+                                // Error already logged via LogMessage
                                 if (!isAutomated && IsHandleCreated)
                                     BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to move movie {filename}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                             }
@@ -2707,25 +2763,25 @@ namespace Sortarr
                                             {
                                                 File.Delete(finalPath);
                                                 LogMessage($"Deleted existing TV show file at {finalPath} to allow overwrite.");
-                                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Deleted existing TV show file at {finalPath} to allow overwrite.\n\n");
+                                                // Message already logged via LogMessage
                                             }
                                             if (!File.Exists(file))
                                             {
                                                 LogMessage($"Error: Source file {file} not found for moving to {finalPath}.");
-                                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Move Error: Source file {file} not found.\n\n");
+                                                // Error already logged via LogMessage
                                                 if (!isAutomated && IsHandleCreated)
                                                     BeginInvoke((SystemAction)(() => MessageBox.Show($"Source file {file} not found for moving.\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                                                 continue;
                                             }
                                             File.Move(file, finalPath);
                                             LogMessage($"Moved TV show file {filename} to existing folder {finalPath}");
-                                            File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Moved TV show file {filename} to {finalPath}\n\n");
+                                            // Message already logged via LogMessage
                                             matchFound = true;
                                         }
                                         catch (Exception ex)
                                         {
                                             LogMessage($"Failed to move TV show file {filename} to {finalPath}: {ex.Message}");
-                                            File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] TV Show Move Error: {filename} to {finalPath}\nException: {ex.Message}\n\n");
+                                            // Error already logged via LogMessage
                                             if (!isAutomated && IsHandleCreated)
                                                 BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to move TV show file {filename}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                                         }
@@ -2737,7 +2793,7 @@ namespace Sortarr
                             catch (Exception ex)
                             {
                                 LogMessage($"Error checking TV show folders in {folder}: {ex.Message}");
-                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] TV Show Folder Check Error: {folder}\nException: {ex.Message}\n\n");
+                                // Error already logged via LogMessage
                             }
                         }
 
@@ -2753,30 +2809,30 @@ namespace Sortarr
                                 {
                                     Directory.CreateDirectory(newShowPath);
                                     LogMessage($"Created new TV show folder: {newShowPath}");
-                                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Created new TV show folder: {newShowPath}\n\n");
+                                    // Message already logged via LogMessage
                                 }
                                 if (File.Exists(finalPath))
                                 {
                                     File.Delete(finalPath);
                                     LogMessage($"Deleted existing TV show file at {finalPath} to allow overwrite.");
-                                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Deleted existing TV show file at {finalPath} to allow overwrite.\n\n");
+                                    // Message already logged via LogMessage
                                 }
                                 if (!File.Exists(file))
                                 {
                                     LogMessage($"Error: Source file {file} not found for moving to {finalPath}.");
-                                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Move Error: Source file {file} not found.\n\n");
+                                    // Error already logged via LogMessage
                                     if (!isAutomated && IsHandleCreated)
                                         BeginInvoke((SystemAction)(() => MessageBox.Show($"Source file {file} not found for moving.\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                                     continue;
                                 }
                                 File.Move(file, finalPath);
                                 LogMessage($"Moved TV show file {filename} to new folder {finalPath}");
-                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Moved TV show file {filename} to {finalPath}\n\n");
+                                // Message already logged via LogMessage
                             }
                             catch (Exception ex)
                             {
                                 LogMessage($"Failed to move TV show file {filename} to {finalPath}: {ex.Message}");
-                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] TV Show Move Error: {filename} to {finalPath}\nException: {ex.Message}\n\n");
+                                // Error already logged via LogMessage
                                 if (!isAutomated && IsHandleCreated)
                                     BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to move TV show file {filename}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                             }
@@ -2792,7 +2848,7 @@ namespace Sortarr
                 if (!Directory.Exists(sourceDownloadsFolder.Text))
                 {
                     LogMessage($"Downloads folder not found: {sourceDownloadsFolder.Text}");
-                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Downloads Folder Not Found: {sourceDownloadsFolder.Text}\n\n");
+                    // Error already logged via LogMessage
                     if (!isAutomated && IsHandleCreated)
                         BeginInvoke((SystemAction)(() => MessageBox.Show($"Downloads folder not found: {sourceDownloadsFolder.Text}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 }
@@ -2809,13 +2865,13 @@ namespace Sortarr
                             {
                                 File.Delete(mediaFile);
                                 LogMessage($"Deleted original media file: {mediaFile}");
-                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Deleted original media file: {mediaFile}\n\n");
+                                // Message already logged via LogMessage
                             }
                         }
                         catch (Exception ex)
                         {
                             LogMessage($"Failed to delete original media file {mediaFile}: {ex.Message}");
-                            File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Delete Error: {mediaFile}\nException: {ex.Message}\n\n");
+                            // Error already logged via LogMessage
                             if (!isAutomated && IsHandleCreated)
                                 BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to delete original media file {mediaFile}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                         }
@@ -2832,13 +2888,13 @@ namespace Sortarr
                             {
                                 Directory.Delete(dir, true);
                                 LogMessage($"Deleted empty folder: {dir}");
-                                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Deleted empty folder: {dir}\n\n");
+                                // Message already logged via LogMessage
                             }
                         }
                         catch (Exception ex)
                         {
                             LogMessage($"Failed to delete empty folder {dir}: {ex.Message}");
-                            File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Empty Folder Delete Error: {dir}\nException: {ex.Message}\n\n");
+                            // Error already logged via LogMessage
                         }
                     }
                 }
@@ -2846,7 +2902,7 @@ namespace Sortarr
             catch (Exception ex)
             {
                 LogMessage($"Failed to clean up downloads folder: {ex.Message}");
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Downloads Cleanup Error: {ex.Message}\n\n");
+                // Error already logged via LogMessage
                 if (!isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to clean up downloads folder: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
             }
@@ -2860,13 +2916,13 @@ namespace Sortarr
                     {
                         Directory.Delete(folder, true);
                         LogMessage($"Cleaned up empty temporary folder: {folder}");
-                        File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Cleaned up empty temporary folder: {folder}\n\n");
+                        // Message already logged via LogMessage
                     }
                 }
                 catch (Exception ex)
                 {
                     LogMessage($"Failed to clean up temporary folder {folder}: {ex.Message}");
-                    File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Temp Folder Cleanup Error: {folder}\nException: {ex.Message}\n\n");
+                    // Error already logged via LogMessage
                     if (!isAutomated && IsHandleCreated)
                         BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to clean up temporary folder {folder}: {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 }
@@ -2882,6 +2938,7 @@ namespace Sortarr
         finally
         {
             UpdateWebProcessingState(false, completedSuccessfully ? "Completed" : "Error", string.Empty);
+            ReleaseProcessLock(); // Always release the lock when process completes
         }
 
     }
