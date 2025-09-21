@@ -323,6 +323,7 @@
             this.sourceFolderMovies1.Size = new System.Drawing.Size(350, 20);
             this.sourceFolderMovies1.TabIndex = 2;
             this.sourceFolderMovies1.Text = "Default";
+            this.sourceFolderMovies1.ForeColor = System.Drawing.Color.Gray;
             // 
             // sourceFolderMovies2
             // 
@@ -449,6 +450,7 @@
             this.sourceFolder4kMovies1.Size = new System.Drawing.Size(350, 20);
             this.sourceFolder4kMovies1.TabIndex = 2;
             this.sourceFolder4kMovies1.Text = "Default";
+            this.sourceFolder4kMovies1.ForeColor = System.Drawing.Color.Gray;
             // 
             // sourceFolder4kMovies2
             // 
@@ -575,6 +577,7 @@
             this.sourceFolderTVShows1.Size = new System.Drawing.Size(350, 20);
             this.sourceFolderTVShows1.TabIndex = 2;
             this.sourceFolderTVShows1.Text = "Default";
+            this.sourceFolderTVShows1.ForeColor = System.Drawing.Color.Gray;
             // 
             // sourceFolderTVShows2
             // 
@@ -701,6 +704,7 @@
             this.sourceFolder4kTVShows1.Size = new System.Drawing.Size(350, 20);
             this.sourceFolder4kTVShows1.TabIndex = 2;
             this.sourceFolder4kTVShows1.Text = "Default";
+            this.sourceFolder4kTVShows1.ForeColor = System.Drawing.Color.Gray;
             // 
             // sourceFolder4kTVShows2
             // 
@@ -789,11 +793,13 @@
             this.groupBoxFileBot.Text = "FileBot and Downloads Folders";
             // 
             // sourceFilebotFolder
-            // 
+            //
             this.sourceFilebotFolder.Location = new System.Drawing.Point(10, 30);
             this.sourceFilebotFolder.Name = "sourceFilebotFolder";
             this.sourceFilebotFolder.Size = new System.Drawing.Size(350, 20);
             this.sourceFilebotFolder.TabIndex = 0;
+            this.sourceFilebotFolder.Text = "FileBot Location";
+            this.sourceFilebotFolder.ForeColor = System.Drawing.Color.Gray;
             // 
             // browseFilebotLocationBtn
             // 
@@ -805,11 +811,13 @@
             this.browseFilebotLocationBtn.UseVisualStyleBackColor = true;
             // 
             // sourceDownloadsFolder
-            // 
+            //
             this.sourceDownloadsFolder.Location = new System.Drawing.Point(460, 30);
             this.sourceDownloadsFolder.Name = "sourceDownloadsFolder";
             this.sourceDownloadsFolder.Size = new System.Drawing.Size(350, 20);
             this.sourceDownloadsFolder.TabIndex = 2;
+            this.sourceDownloadsFolder.Text = "Downloads Location";
+            this.sourceDownloadsFolder.ForeColor = System.Drawing.Color.Gray;
             // 
             // browseDownloadsLocationBtn
             // 

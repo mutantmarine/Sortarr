@@ -9,6 +9,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using System.Drawing;
 using System.Windows.Forms;
 using TaskScheduler = Microsoft.Win32.TaskScheduler;
 using SystemAction = System.Action;
@@ -349,6 +350,22 @@ namespace Sortarr
             // Add auto-save handlers for text boxes
             sourceFilebotFolder.TextChanged += (s, e) => AutoSaveSettings();
             sourceDownloadsFolder.TextChanged += (s, e) => AutoSaveSettings();
+
+            // Placeholder text event handlers
+            sourceFilebotFolder.Enter += sourceFilebotFolder_Enter;
+            sourceFilebotFolder.Leave += sourceFilebotFolder_Leave;
+            sourceDownloadsFolder.Enter += sourceDownloadsFolder_Enter;
+            sourceDownloadsFolder.Leave += sourceDownloadsFolder_Leave;
+
+            // Media directory placeholder handlers
+            sourceFolderMovies1.Enter += sourceFolderMovies1_Enter;
+            sourceFolderMovies1.Leave += sourceFolderMovies1_Leave;
+            sourceFolder4kMovies1.Enter += sourceFolder4kMovies1_Enter;
+            sourceFolder4kMovies1.Leave += sourceFolder4kMovies1_Leave;
+            sourceFolderTVShows1.Enter += sourceFolderTVShows1_Enter;
+            sourceFolderTVShows1.Leave += sourceFolderTVShows1_Leave;
+            sourceFolder4kTVShows1.Enter += sourceFolder4kTVShows1_Enter;
+            sourceFolder4kTVShows1.Leave += sourceFolder4kTVShows1_Leave;
             overrideMoviesTextBox.TextChanged += (s, e) => AutoSaveSettings();
             overrideTVShowsTextBox.TextChanged += (s, e) => AutoSaveSettings();
 
@@ -1036,8 +1053,8 @@ namespace Sortarr
 
                 var config = new WebConfigData
                 {
-                    FilebotPath = sourceFilebotFolder.Text,
-                    DownloadsFolder = sourceDownloadsFolder.Text,
+                    FilebotPath = IsPlaceholderText(sourceFilebotFolder, FILEBOT_PLACEHOLDER) ? "" : sourceFilebotFolder.Text,
+                    DownloadsFolder = IsPlaceholderText(sourceDownloadsFolder, DOWNLOADS_PLACEHOLDER) ? "" : sourceDownloadsFolder.Text,
                     EnableHDMovies = hdMovieCheck.Checked,
                     HdMovieCount = (int)hdMovieUpDown.Value,
                     HdMovieFolders = hdMovieTextBoxes
@@ -1084,10 +1101,22 @@ namespace Sortarr
             ExecuteOnUiThread(() =>
             {
                 if (update.FilebotPath != null)
+                {
                     sourceFilebotFolder.Text = update.FilebotPath;
+                    if (!string.IsNullOrWhiteSpace(update.FilebotPath))
+                        sourceFilebotFolder.ForeColor = Color.Black;
+                    else
+                        SetPlaceholder(sourceFilebotFolder, FILEBOT_PLACEHOLDER);
+                }
 
                 if (update.DownloadsFolder != null)
+                {
                     sourceDownloadsFolder.Text = update.DownloadsFolder;
+                    if (!string.IsNullOrWhiteSpace(update.DownloadsFolder))
+                        sourceDownloadsFolder.ForeColor = Color.Black;
+                    else
+                        SetPlaceholder(sourceDownloadsFolder, DOWNLOADS_PLACEHOLDER);
+                }
 
                 var hdMovie = mediaControls["HDMovie"];
                 if (update.EnableHDMovies.HasValue)
@@ -1305,10 +1334,21 @@ namespace Sortarr
                 {
                     string value = i < values.Length ? values[i] : null;
                     textBoxes[i].Text = NormalizeIncomingFolder(value, firstUsesDefault && i == 0);
+
+                    // Set proper color based on whether it's a placeholder or real value
+                    if (firstUsesDefault && i == 0)
+                    {
+                        if (string.IsNullOrWhiteSpace(value))
+                            textBoxes[i].ForeColor = Color.Gray; // Default placeholder
+                        else
+                            textBoxes[i].ForeColor = Color.Black; // Real folder path
+                    }
                 }
                 else
                 {
                     textBoxes[i].Text = firstUsesDefault && i == 0 ? "Default" : string.Empty;
+                    if (firstUsesDefault && i == 0)
+                        textBoxes[i].ForeColor = Color.Gray; // Default placeholder
                 }
             }
         }
@@ -1585,8 +1625,22 @@ namespace Sortarr
             {
                 BeginInvoke((SystemAction)(() =>
                 {
-                    if (pairs.ContainsKey("filebotPath")) sourceFilebotFolder.Text = pairs["filebotPath"];
-                    if (pairs.ContainsKey("downloadsFolder")) sourceDownloadsFolder.Text = pairs["downloadsFolder"];
+                    if (pairs.ContainsKey("filebotPath"))
+                    {
+                        sourceFilebotFolder.Text = pairs["filebotPath"];
+                        if (!string.IsNullOrWhiteSpace(pairs["filebotPath"]))
+                            sourceFilebotFolder.ForeColor = Color.Black;
+                        else
+                            SetPlaceholder(sourceFilebotFolder, FILEBOT_PLACEHOLDER);
+                    }
+                    if (pairs.ContainsKey("downloadsFolder"))
+                    {
+                        sourceDownloadsFolder.Text = pairs["downloadsFolder"];
+                        if (!string.IsNullOrWhiteSpace(pairs["downloadsFolder"]))
+                            sourceDownloadsFolder.ForeColor = Color.Black;
+                        else
+                            SetPlaceholder(sourceDownloadsFolder, DOWNLOADS_PLACEHOLDER);
+                    }
                     if (pairs.ContainsKey("hdMovie1")) sourceFolderMovies1.Text = string.IsNullOrWhiteSpace(pairs["hdMovie1"]) ? "Default" : pairs["hdMovie1"];
                     if (pairs.ContainsKey("4kMovie1")) sourceFolder4kMovies1.Text = string.IsNullOrWhiteSpace(pairs["4kMovie1"]) ? "Default" : pairs["4kMovie1"];
                     if (pairs.ContainsKey("hdTV1")) sourceFolderTVShows1.Text = string.IsNullOrWhiteSpace(pairs["hdTV1"]) ? "Default" : pairs["hdTV1"];
@@ -1958,7 +2012,12 @@ namespace Sortarr
             {
                 dialog.Filter = filter;
                 if (dialog.ShowDialog() == DialogResult.OK)
+                {
                     targetTextBox.Text = dialog.FileName;
+                    // Restore normal color for FileBot textbox if it's a placeholder textbox
+                    if (targetTextBox == sourceFilebotFolder)
+                        targetTextBox.ForeColor = Color.Black;
+                }
             }
             ValidateSetup();
         }
@@ -1968,7 +2027,16 @@ namespace Sortarr
             using (FolderBrowserDialog dialog = new FolderBrowserDialog())
             {
                 if (dialog.ShowDialog() == DialogResult.OK)
+                {
                     targetTextBox.Text = dialog.SelectedPath;
+                    // Restore normal color for placeholder textboxes
+                    if (targetTextBox == sourceDownloadsFolder ||
+                        targetTextBox == sourceFolderMovies1 ||
+                        targetTextBox == sourceFolder4kMovies1 ||
+                        targetTextBox == sourceFolderTVShows1 ||
+                        targetTextBox == sourceFolder4kTVShows1)
+                        targetTextBox.ForeColor = Color.Black;
+                }
             }
             ValidateSetup();
         }
@@ -2152,21 +2220,25 @@ namespace Sortarr
         private bool ValidateInputs(bool showErrors = true)
         {
             lastValidationError = string.Empty;
-            if (!File.Exists(sourceFilebotFolder.Text))
+            // Check if FileBot path is placeholder or invalid
+            if (IsPlaceholderText(sourceFilebotFolder, FILEBOT_PLACEHOLDER) || !File.Exists(sourceFilebotFolder.Text))
             {
                 lastValidationError = "FileBot executable not found at the specified path.";
                 LogMessage("Error: FileBot executable not found.");
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: FileBot executable not found at {sourceFilebotFolder.Text}.\n\n");
+                string pathForLog = IsPlaceholderText(sourceFilebotFolder, FILEBOT_PLACEHOLDER) ? "[not specified]" : sourceFilebotFolder.Text;
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: FileBot executable not found at {pathForLog}.\n\n");
                 if (showErrors && !isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show("FileBot executable not found at the specified path.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 return false;
             }
 
-            if (!Directory.Exists(sourceDownloadsFolder.Text))
+            // Check if Downloads folder is placeholder or invalid
+            if (IsPlaceholderText(sourceDownloadsFolder, DOWNLOADS_PLACEHOLDER) || !Directory.Exists(sourceDownloadsFolder.Text))
             {
-                lastValidationError = $"Downloads folder not found at {sourceDownloadsFolder.Text}.";
+                string pathForError = IsPlaceholderText(sourceDownloadsFolder, DOWNLOADS_PLACEHOLDER) ? "[not specified]" : sourceDownloadsFolder.Text;
+                lastValidationError = $"Downloads folder not found at {pathForError}.";
                 LogMessage("Error: Downloads folder not found.");
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: Downloads folder not found at {sourceDownloadsFolder.Text}.\n\n");
+                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error: Downloads folder not found at {pathForError}.\n\n");
                 if (showErrors && !isAutomated && IsHandleCreated)
                     BeginInvoke((SystemAction)(() => MessageBox.Show("Downloads folder not found.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
                 return false;
@@ -2842,6 +2914,100 @@ namespace Sortarr
         protected override void SetVisibleCore(bool value)
         {
             base.SetVisibleCore(allowVisible && value);
+        }
+
+        // Placeholder text functionality for FileBot and Downloads textboxes
+        private const string FILEBOT_PLACEHOLDER = "FileBot Location";
+        private const string DOWNLOADS_PLACEHOLDER = "Downloads Location";
+        private const string DEFAULT_PLACEHOLDER = "Default";
+
+        private void sourceFilebotFolder_Enter(object sender, EventArgs e)
+        {
+            ClearPlaceholder(sourceFilebotFolder, FILEBOT_PLACEHOLDER);
+        }
+
+        private void sourceFilebotFolder_Leave(object sender, EventArgs e)
+        {
+            SetPlaceholderIfEmpty(sourceFilebotFolder, FILEBOT_PLACEHOLDER);
+        }
+
+        private void sourceDownloadsFolder_Enter(object sender, EventArgs e)
+        {
+            ClearPlaceholder(sourceDownloadsFolder, DOWNLOADS_PLACEHOLDER);
+        }
+
+        private void sourceDownloadsFolder_Leave(object sender, EventArgs e)
+        {
+            SetPlaceholderIfEmpty(sourceDownloadsFolder, DOWNLOADS_PLACEHOLDER);
+        }
+
+        private bool IsPlaceholderText(TextBox textBox, string placeholder)
+        {
+            return textBox.Text == placeholder && textBox.ForeColor == Color.Gray;
+        }
+
+        private void SetPlaceholder(TextBox textBox, string placeholder)
+        {
+            textBox.Text = placeholder;
+            textBox.ForeColor = Color.Gray;
+        }
+
+        private void ClearPlaceholder(TextBox textBox, string placeholder)
+        {
+            if (IsPlaceholderText(textBox, placeholder))
+            {
+                textBox.Text = "";
+                textBox.ForeColor = Color.Black;
+            }
+        }
+
+        private void SetPlaceholderIfEmpty(TextBox textBox, string placeholder)
+        {
+            if (string.IsNullOrWhiteSpace(textBox.Text))
+            {
+                SetPlaceholder(textBox, placeholder);
+            }
+        }
+
+        // Media directory placeholder event handlers
+        private void sourceFolderMovies1_Enter(object sender, EventArgs e)
+        {
+            ClearPlaceholder(sourceFolderMovies1, DEFAULT_PLACEHOLDER);
+        }
+
+        private void sourceFolderMovies1_Leave(object sender, EventArgs e)
+        {
+            SetPlaceholderIfEmpty(sourceFolderMovies1, DEFAULT_PLACEHOLDER);
+        }
+
+        private void sourceFolder4kMovies1_Enter(object sender, EventArgs e)
+        {
+            ClearPlaceholder(sourceFolder4kMovies1, DEFAULT_PLACEHOLDER);
+        }
+
+        private void sourceFolder4kMovies1_Leave(object sender, EventArgs e)
+        {
+            SetPlaceholderIfEmpty(sourceFolder4kMovies1, DEFAULT_PLACEHOLDER);
+        }
+
+        private void sourceFolderTVShows1_Enter(object sender, EventArgs e)
+        {
+            ClearPlaceholder(sourceFolderTVShows1, DEFAULT_PLACEHOLDER);
+        }
+
+        private void sourceFolderTVShows1_Leave(object sender, EventArgs e)
+        {
+            SetPlaceholderIfEmpty(sourceFolderTVShows1, DEFAULT_PLACEHOLDER);
+        }
+
+        private void sourceFolder4kTVShows1_Enter(object sender, EventArgs e)
+        {
+            ClearPlaceholder(sourceFolder4kTVShows1, DEFAULT_PLACEHOLDER);
+        }
+
+        private void sourceFolder4kTVShows1_Leave(object sender, EventArgs e)
+        {
+            SetPlaceholderIfEmpty(sourceFolder4kTVShows1, DEFAULT_PLACEHOLDER);
         }
 
         protected override void Dispose(bool disposing)

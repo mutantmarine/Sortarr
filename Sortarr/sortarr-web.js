@@ -116,21 +116,25 @@ class SortarrWeb {
             const newCount = parseInt(e.target.value, 10) || 1;
             const existing = this.collectCurrentFolderValues('hdMovies');
             this.updateFolderInputs('hdMovies', newCount, existing);
+            this.saveConfiguration();
         });
         bindChange('movieCount4K', (e) => {
             const newCount = parseInt(e.target.value, 10) || 1;
             const existing = this.collectCurrentFolderValues('4kMovies');
             this.updateFolderInputs('4kMovies', newCount, existing);
+            this.saveConfiguration();
         });
         bindChange('hdTVCount', (e) => {
             const newCount = parseInt(e.target.value, 10) || 1;
             const existing = this.collectCurrentFolderValues('hdTV');
             this.updateFolderInputs('hdTV', newCount, existing);
+            this.saveConfiguration();
         });
         bindChange('tvCount4K', (e) => {
             const newCount = parseInt(e.target.value, 10) || 1;
             const existing = this.collectCurrentFolderValues('4kTV');
             this.updateFolderInputs('4kTV', newCount, existing);
+            this.saveConfiguration();
         });
     }
 
