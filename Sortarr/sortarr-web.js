@@ -9,8 +9,6 @@ class SortarrWeb {
         this.currentPath = 'C\\\\';
         this.browserTarget = null;
         this.browserMode = 'folder'; // 'folder' or 'file'
-        this.currentProfile = '';
-
         this.init();
     }
 
@@ -18,10 +16,11 @@ class SortarrWeb {
         this.setupTabs();
         this.setupEventListeners();
         this.registerLifecycleHandlers();
-        await this.loadSetupData();
+        await this.refreshConfig(true);
         this.startLogPolling();
         this.startConfigPolling();
         this.updateStatus();
+        await this.refreshScheduleStatus();
     }
 
     // Tab Management
@@ -46,10 +45,6 @@ class SortarrWeb {
 
     // Event Listeners
     setupEventListeners() {
-        const profileSelect = document.getElementById('profileSelect');
-        if (profileSelect) {
-            profileSelect.addEventListener('change', () => this.handleProfileSelection());
-        }
 
         const bindClick = (id, handler) => {
             const element = document.getElementById(id);
@@ -65,10 +60,6 @@ class SortarrWeb {
             }
         };
 
-        // Profile Management
-        bindClick('loadProfileBtn', () => this.loadProfile());
-        bindClick('saveProfileBtn', () => this.saveProfile());
-        bindClick('deleteProfileBtn', () => this.deleteProfile());
 
         // Operations
         bindClick('runSortarrBtn', () => this.runSortarr());
@@ -99,6 +90,7 @@ class SortarrWeb {
                 if (schedulingControls) {
                     schedulingControls.style.display = e.target.checked ? 'block' : 'none';
                 }
+                this.saveConfiguration();
             });
         }
 
@@ -109,11 +101,26 @@ class SortarrWeb {
                 if (overrideControls) {
                     overrideControls.style.display = e.target.checked ? 'block' : 'none';
                 }
+                this.saveConfiguration();
             });
         }
 
         bindClick('createTaskBtn', () => this.createScheduledTask());
         bindClick('removeTaskBtn', () => this.removeScheduledTask());
+
+        // Setup tab automatic save on change
+        bindChange('filebotPath', () => this.saveConfiguration());
+        bindChange('downloadsFolder', () => this.saveConfiguration());
+        bindChange('enableHDMovies', () => this.saveConfiguration());
+        bindChange('enable4KMovies', () => this.saveConfiguration());
+        bindChange('enableHDTV', () => this.saveConfiguration());
+        bindChange('enable4KTV', () => this.saveConfiguration());
+
+        // Advanced tab automatic save on change
+        bindChange('scheduleInterval', () => this.saveConfiguration());
+        bindChange('movieFormatOverride', () => this.saveConfiguration());
+        bindChange('tvFormatOverride', () => this.saveConfiguration());
+        bindChange('enableSystemTray', () => this.saveConfiguration());
 
         // Support
         bindClick('donateBtn', () => this.openDonationLink());
@@ -193,93 +200,7 @@ class SortarrWeb {
         });
     }
 
-    async loadSetupData() {
-        const setup = await this.apiCall('setup');
-        if (!setup) {
-            await this.loadProfiles();
-            await this.refreshConfig(true);
-            return;
-        }
 
-        this.populateProfiles(setup.profiles || [], setup.currentProfile || '');
-
-        if (setup.config) {
-            this.populateForm(setup.config, { silent: true });
-        } else {
-            await this.refreshConfig(true);
-        }
-
-        await this.refreshScheduleStatus();
-    }
-
-    populateProfiles(profiles = [], selectedProfile = '') {
-        const profileSelect = document.getElementById('profileSelect');
-        const list = Array.isArray(profiles) ? profiles : [];
-
-        if (!profileSelect) {
-            this.currentProfile = selectedProfile || this.currentProfile || '';
-            this.updateProfileBanner();
-            return;
-        }
-
-        profileSelect.innerHTML = '<option value="">Select Profile...</option>';
-
-        list.forEach(profile => {
-            const option = document.createElement('option');
-            option.value = profile;
-            option.textContent = profile;
-            profileSelect.appendChild(option);
-        });
-
-        this.setProfileSelection(selectedProfile);
-    }
-
-    setProfileSelection(profileName = undefined) {
-        const profileSelect = document.getElementById('profileSelect');
-        let targetProfile = profileName;
-
-        if (!profileSelect) {
-            this.currentProfile = targetProfile || this.currentProfile || '';
-            this.updateProfileBanner();
-            return;
-        }
-
-        const optionValues = Array.from(profileSelect.options).map(opt => opt.value);
-        if (targetProfile && optionValues.includes(targetProfile)) {
-            profileSelect.value = targetProfile;
-        } else if (profileSelect.options.length > 1) {
-            profileSelect.selectedIndex = 1;
-            targetProfile = profileSelect.value;
-        } else {
-            profileSelect.selectedIndex = 0;
-            targetProfile = '';
-        }
-
-        this.currentProfile = targetProfile || '';
-        this.updateProfileBanner();
-    }
-
-    async handleProfileSelection() {
-        const profileSelect = document.getElementById('profileSelect');
-        const profileName = profileSelect ? profileSelect.value : '';
-        if (!profileName) {
-            return;
-        }
-
-        const result = await this.apiCall('profiles/select', 'POST', { profileName });
-        if (result && result.success) {
-            const appliedProfile = result.currentProfile || profileName;
-            this.setProfileSelection(appliedProfile);
-
-            if (result.config) {
-                this.populateForm(result.config, { silent: true });
-            } else {
-                await this.refreshConfig(true);
-            }
-
-            this.showNotification(`Profile '${appliedProfile}' loaded`, 'success');
-        }
-    }
 
     startConfigPolling() {
         if (this.configPollingTimer) {
@@ -316,7 +237,7 @@ class SortarrWeb {
 
         const tag = active.tagName;
         if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
-            return active.closest('#setup-tab') !== null;
+            return active.closest('#setup-tab') !== null || active.closest('#advanced-tab') !== null;
         }
 
         return false;
@@ -340,81 +261,10 @@ class SortarrWeb {
         });
     }
 
-    updateProfileBanner() {
-        const banner = document.getElementById('activeProfileDisplay');
-        if (!banner) {
-            return;
-        }
-
-        if (this.currentProfile) {
-            banner.textContent = this.currentProfile;
-            banner.classList.remove('empty');
-        } else {
-            banner.textContent = 'No profile selected';
-            banner.classList.add('empty');
-        }
-    }
 
 
 
-    // Profile Management
-    async loadProfiles(selectedProfile = null) {
-        const profiles = await this.apiCall('profiles');
-        const requestedProfile = selectedProfile ?? this.currentProfile;
-        this.populateProfiles(profiles || [], requestedProfile);
-    }
 
-
-    async loadProfile() {
-        const profileSelect = document.getElementById('profileSelect');
-        const profileName = profileSelect ? profileSelect.value : '';
-        if (!profileName) {
-            this.showNotification('Please select a profile', 'warning');
-            return;
-        }
-
-        await this.handleProfileSelection();
-    }
-
-
-    async saveProfile() {
-        const profileSelect = document.getElementById('profileSelect');
-        const profileName = document.getElementById('newProfileName').value.trim() || (profileSelect ? profileSelect.value : '');
-
-        if (!profileName) {
-            this.showNotification('Please enter a profile name', 'warning');
-            return;
-        }
-
-        const config = this.getFormData();
-        const result = await this.apiCall(`profiles/${encodeURIComponent(profileName)}`, 'POST', config);
-
-        if (result && result.success) {
-            document.getElementById('newProfileName').value = '';
-            await this.loadProfiles(profileName);
-            await this.refreshConfig(true);
-            this.showNotification('Profile saved successfully', 'success');
-        }
-    }
-
-
-    async deleteProfile() {
-        const profileSelect = document.getElementById('profileSelect');
-        const profileName = profileSelect ? profileSelect.value : '';
-        if (!profileName) {
-            this.showNotification('Please select a profile to delete', 'warning');
-            return;
-        }
-
-        if (confirm(`Are you sure you want to delete profile "${profileName}"?`)) {
-            const result = await this.apiCall(`profiles/${encodeURIComponent(profileName)}`, 'DELETE');
-            if (result && result.success) {
-                await this.loadProfiles();
-                await this.refreshConfig(true);
-                this.showNotification('Profile deleted successfully', 'success');
-            }
-        }
-    }
 
 
     // Operations
@@ -478,7 +328,6 @@ class SortarrWeb {
         const tv4kCount = parseInt(document.getElementById('tvCount4K').value, 10) || 1;
 
         return {
-            currentProfile: this.currentProfile,
             filebotPath: document.getElementById('filebotPath').value,
             downloadsFolder: document.getElementById('downloadsFolder').value,
 
@@ -626,11 +475,6 @@ class SortarrWeb {
 
         this.updateTaskStatus(config.isTaskScheduled, config.scheduleInterval);
 
-        if (config.currentProfile !== undefined) {
-            this.setProfileSelection(config.currentProfile);
-        } else if (!silent) {
-            this.updateProfileBanner();
-        }
     }
 
 
@@ -670,6 +514,9 @@ class SortarrWeb {
             } else if (i === 1) {
                 input.value = 'Default';
             }
+
+            // Add auto-save event listener to folder input
+            input.addEventListener('change', () => this.saveConfiguration());
         }
     }
 

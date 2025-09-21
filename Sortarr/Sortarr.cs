@@ -17,10 +17,10 @@ namespace Sortarr
 {
     public partial class Sortarr : Form
     {
-        private string profilePath = Path.Combine(Application.StartupPath, "profiles");
         private string[] mediaExtensions = new[] { ".mp4", ".mkv", ".avi", ".mov", ".m4v" };
         private List<(string Original, string Renamed)> fileMappings = new List<(string Original, string Renamed)>();
         private string logFilePath = Path.Combine(Application.StartupPath, "filebot_log.txt");
+        private string settingsFilePath = Path.Combine(Application.StartupPath, "settings.json");
         private bool isAutomated = false;
         private HttpListener httpListener;
         private bool isServerRunning = false;
@@ -78,6 +78,7 @@ namespace Sortarr
         private ContextMenuStrip trayContextMenu;
         private bool minimizeToTray = false;
         private bool allowVisible = true;
+        private bool trayChoiceMade = false;
         private readonly JsonSerializerOptions jsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -161,7 +162,6 @@ namespace Sortarr
             }
 
             InitializeComponent();
-            Directory.CreateDirectory(profilePath);
             UpdateWebProcessingState(false, "Ready", string.Empty);
 
             // Initialize system tray
@@ -240,7 +240,8 @@ namespace Sortarr
             // Disable button initially
             sortarrBtn.Enabled = false;
 
-            LoadProfilesToDropdown();
+            // Load settings automatically
+            AutoLoadSettings();
 
             // Handle automated mode
             if (isAutomated)
@@ -264,24 +265,22 @@ namespace Sortarr
         {
             try
             {
-                var profiles = Directory.GetFiles(profilePath, "*.txt").Select(Path.GetFileNameWithoutExtension).OrderBy(p => p).ToList();
-                if (!profiles.Any())
+                // Check if settings exist for automated mode
+                if (!File.Exists(settingsFilePath))
                 {
-                    LogError("No profiles found for automated mode", "");
+                    LogError("No settings found for automated mode. Please configure Sortarr first.", "");
                     logger?.Flush(); // Ensure log is written before exit
                     await Task.Delay(1000); // Allow logging
                     Application.Exit();
                     return;
                 }
 
-                profileSelector.Text = profiles.First();
-                loadProfileBtn_Click(this, EventArgs.Empty);
-                LogMessage($"Automatically loaded first profile: {profileSelector.Text}");
+                LogMessage("Running in automated mode with saved settings");
 
                 // Validate inputs
                 if (!ValidateInputs())
                 {
-                    LogError($"Validation failed for automated mode. Check profile settings in {profileSelector.Text}.txt", "");
+                    LogError("Validation failed for automated mode. Check your settings.", "");
                     logger?.Flush(); // Ensure log is written before exit
                     await Task.Delay(1000); // Allow logging
                     StopHttpServer();
@@ -331,9 +330,6 @@ namespace Sortarr
             browseTVShowLocation4kBtn5.Click += (s, e) => BrowseFolderIntoTextBox(sourceFolder4kTVShows5);
             browseFilebotLocationBtn.Click += browseFilebotLocationBtn_Click;
             browseDownloadsLocationBtn.Click += browseDownloadsLocationBtn_Click;
-            saveProfileBtn.Click += saveProfileBtn_Click;
-            loadProfileBtn.Click += loadProfileBtn_Click;
-            deleteProfileBtn.Click += deleteProfileBtn_Click;
             sortarrBtn.Click += sortarrBtn_Click;
             checkboxScheduleTask.CheckedChanged += checkboxScheduleTask_CheckedChanged;
             checkboxOverrideSortarrParameters.CheckedChanged += checkboxOverrideSortarrParameters_CheckedChanged;
@@ -344,11 +340,46 @@ namespace Sortarr
             donateBtn.Click += donateBtn_Click;
             openLocalHostBtn.Click += openLocalHostBtn_Click;
 
-            // Add CheckedChanged handlers for media checkboxes
-            checkboxMovie.CheckedChanged += (s, e) => UpdateControlVisibility();
-            checkbox4KMovie.CheckedChanged += (s, e) => UpdateControlVisibility();
-            checkboxTVShow.CheckedChanged += (s, e) => UpdateControlVisibility();
-            checkbox4KTVShow.CheckedChanged += (s, e) => UpdateControlVisibility();
+            // Add CheckedChanged handlers for media checkboxes with auto-save
+            checkboxMovie.CheckedChanged += (s, e) => { UpdateControlVisibility(); AutoSaveSettings(); };
+            checkbox4KMovie.CheckedChanged += (s, e) => { UpdateControlVisibility(); AutoSaveSettings(); };
+            checkboxTVShow.CheckedChanged += (s, e) => { UpdateControlVisibility(); AutoSaveSettings(); };
+            checkbox4KTVShow.CheckedChanged += (s, e) => { UpdateControlVisibility(); AutoSaveSettings(); };
+
+            // Add auto-save handlers for text boxes
+            sourceFilebotFolder.TextChanged += (s, e) => AutoSaveSettings();
+            sourceDownloadsFolder.TextChanged += (s, e) => AutoSaveSettings();
+            overrideMoviesTextBox.TextChanged += (s, e) => AutoSaveSettings();
+            overrideTVShowsTextBox.TextChanged += (s, e) => AutoSaveSettings();
+
+            // Add auto-save handlers for numeric up/downs
+            upDownMovie.ValueChanged += (s, e) => AutoSaveSettings();
+            upDown4KMovie.ValueChanged += (s, e) => AutoSaveSettings();
+            upDownTVShow.ValueChanged += (s, e) => AutoSaveSettings();
+            upDown4KTVShow.ValueChanged += (s, e) => AutoSaveSettings();
+            numericUpDownSchedule.ValueChanged += (s, e) => AutoSaveSettings();
+
+            // Add auto-save handlers for all folder text boxes
+            sourceFolderMovies1.TextChanged += (s, e) => AutoSaveSettings();
+            sourceFolderMovies2.TextChanged += (s, e) => AutoSaveSettings();
+            sourceFolderMovies3.TextChanged += (s, e) => AutoSaveSettings();
+            sourceFolderMovies4.TextChanged += (s, e) => AutoSaveSettings();
+            sourceFolderMovies5.TextChanged += (s, e) => AutoSaveSettings();
+            sourceFolder4kMovies1.TextChanged += (s, e) => AutoSaveSettings();
+            sourceFolder4kMovies2.TextChanged += (s, e) => AutoSaveSettings();
+            sourceFolder4kMovies3.TextChanged += (s, e) => AutoSaveSettings();
+            sourceFolder4kMovies4.TextChanged += (s, e) => AutoSaveSettings();
+            sourceFolder4kMovies5.TextChanged += (s, e) => AutoSaveSettings();
+            sourceFolderTVShows1.TextChanged += (s, e) => AutoSaveSettings();
+            sourceFolderTVShows2.TextChanged += (s, e) => AutoSaveSettings();
+            sourceFolderTVShows3.TextChanged += (s, e) => AutoSaveSettings();
+            sourceFolderTVShows4.TextChanged += (s, e) => AutoSaveSettings();
+            sourceFolderTVShows5.TextChanged += (s, e) => AutoSaveSettings();
+            sourceFolder4kTVShows1.TextChanged += (s, e) => AutoSaveSettings();
+            sourceFolder4kTVShows2.TextChanged += (s, e) => AutoSaveSettings();
+            sourceFolder4kTVShows3.TextChanged += (s, e) => AutoSaveSettings();
+            sourceFolder4kTVShows4.TextChanged += (s, e) => AutoSaveSettings();
+            sourceFolder4kTVShows5.TextChanged += (s, e) => AutoSaveSettings();
 
             // Add placeholder event handlers for default directories
             sourceFolderMovies1.Enter += (s, e) => TextBox_Enter(sourceFolderMovies1, "Default");
@@ -442,6 +473,7 @@ namespace Sortarr
             automateBtn.Visible = checkboxScheduleTask.Checked && isSetupValid;
             removeSortarrAutomation.Enabled = IsTaskScheduled();
             removeSortarrAutomation.Visible = IsTaskScheduled();
+            AutoSaveSettings();
         }
 
         private void checkboxOverrideSortarrParameters_CheckedChanged(object sender, EventArgs e)
@@ -453,6 +485,7 @@ namespace Sortarr
             overrideTVShowsTextBox.Visible = checkboxOverrideSortarrParameters.Checked;
             overrideMoviesTextBox.Enabled = checkboxOverrideSortarrParameters.Checked && isSetupValid;
             overrideTVShowsTextBox.Enabled = checkboxOverrideSortarrParameters.Checked && isSetupValid;
+            AutoSaveSettings();
         }
 
         private void checkboxEnableRemoteConfig_CheckedChanged(object sender, EventArgs e)
@@ -463,6 +496,7 @@ namespace Sortarr
                 StartHttpServer();
             else
                 StopHttpServer();
+            AutoSaveSettings();
         }
 
         private void checkboxMinimizeToTray_CheckedChanged(object sender, EventArgs e)
@@ -477,6 +511,7 @@ namespace Sortarr
                 notifyIcon.Visible = false;
                 allowVisible = true;
             }
+            AutoSaveSettings();
         }
 
         private void StartHttpServer()
@@ -672,13 +707,6 @@ namespace Sortarr
                     return;
                 }
 
-                if (url == "/api/setup" && request.HttpMethod == "GET")
-                {
-                    var config = CaptureCurrentConfig();
-                    var profiles = GetProfileNames();
-                    jsonResponse = JsonSerializer.Serialize(new { config, profiles, currentProfile = config?.CurrentProfile }, jsonOptions);
-                    LogMessage("Returning setup snapshot via API");
-                }
                 else if (url == "/api/config")
                 {
                     if (request.HttpMethod == "GET")
@@ -726,165 +754,6 @@ namespace Sortarr
                     {
                         response.StatusCode = 405;
                         jsonResponse = JsonSerializer.Serialize(new { error = "Method not allowed" }, jsonOptions);
-                    }
-                }
-                else if (url == "/api/profiles" && request.HttpMethod == "GET")
-                {
-                    jsonResponse = GetProfilesAsJson();
-                }
-                else if (url.StartsWith("/api/profiles/") && request.HttpMethod == "GET")
-                {
-                    string profileName = url.Substring("/api/profiles/".Length);
-                    jsonResponse = GetProfileAsJson(profileName);
-                }
-                else if (url.StartsWith("/api/profiles/") && request.HttpMethod == "POST")
-                {
-                    string profileName = Uri.UnescapeDataString(url.Substring("/api/profiles/".Length));
-                    if (string.IsNullOrWhiteSpace(profileName))
-                    {
-                        response.StatusCode = 400;
-                        jsonResponse = JsonSerializer.Serialize(new { error = "Profile name is required" }, jsonOptions);
-                    }
-                    else
-                    {
-                        using (var reader = new StreamReader(request.InputStream, request.ContentEncoding ?? Encoding.UTF8))
-                        {
-                            string body = await reader.ReadToEndAsync();
-                            if (string.IsNullOrWhiteSpace(body))
-                            {
-                                response.StatusCode = 400;
-                                jsonResponse = JsonSerializer.Serialize(new { error = "Request body is required" }, jsonOptions);
-                            }
-                            else
-                            {
-                                WebConfigUpdate updatePayload = null;
-                                try
-                                {
-                                    updatePayload = JsonSerializer.Deserialize<WebConfigUpdate>(body, jsonOptions);
-                                }
-                                catch (JsonException ex)
-                                {
-                                    response.StatusCode = 400;
-                                    LogError("Invalid profile payload", ex);
-                                    jsonResponse = JsonSerializer.Serialize(new { error = "Invalid JSON payload" }, jsonOptions);
-                                }
-
-                                if (updatePayload != null)
-                                {
-                                    ApplyConfigUpdate(updatePayload);
-                                    List<string> lines = ExecuteOnUiThread(() => BuildProfileLinesFromUi()) ?? new List<string>();
-                                    string profileFile = Path.Combine(profilePath, profileName + ".txt");
-
-                                    try
-                                    {
-                                        Directory.CreateDirectory(profilePath);
-                                        File.WriteAllLines(profileFile, lines);
-
-                                        ExecuteOnUiThread(() =>
-                                        {
-                                            LoadProfilesToDropdown();
-                                            profileSelector.SelectedItem = profileName;
-                                        });
-
-                                        var updatedConfig = CaptureCurrentConfig();
-                                        jsonResponse = JsonSerializer.Serialize(new { success = true, profileName, config = updatedConfig }, jsonOptions);
-                                        LogMessage($"Profile '{profileName}' saved via API");
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        response.StatusCode = 500;
-                                        LogError($"Failed to save profile '{profileName}' via API", ex);
-                                        jsonResponse = JsonSerializer.Serialize(new { error = "Failed to save profile" }, jsonOptions);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                else if (url.StartsWith("/api/profiles/") && request.HttpMethod == "DELETE")
-                {
-                    string profileName = Uri.UnescapeDataString(url.Substring("/api/profiles/".Length));
-                    if (string.IsNullOrWhiteSpace(profileName))
-                    {
-                        response.StatusCode = 400;
-                        jsonResponse = JsonSerializer.Serialize(new { error = "Profile name is required" }, jsonOptions);
-                    }
-                    else
-                    {
-                        string profileFile = Path.Combine(profilePath, profileName + ".txt");
-                        if (!File.Exists(profileFile))
-                        {
-                            response.StatusCode = 404;
-                            jsonResponse = JsonSerializer.Serialize(new { error = "Profile not found" }, jsonOptions);
-                        }
-                        else
-                        {
-                            try
-                            {
-                                File.Delete(profileFile);
-                                ExecuteOnUiThread(() =>
-                                {
-                                    LoadProfilesToDropdown();
-                                    profileSelector.Text = string.Empty;
-                                });
-                                var updatedConfig = CaptureCurrentConfig();
-                                jsonResponse = JsonSerializer.Serialize(new { success = true, profileName, config = updatedConfig }, jsonOptions);
-                                LogMessage($"Profile '{profileName}' deleted via API");
-                            }
-                            catch (Exception ex)
-                            {
-                                response.StatusCode = 500;
-                                LogError($"Failed to delete profile '{profileName}' via API", ex);
-                                jsonResponse = JsonSerializer.Serialize(new { error = "Failed to delete profile" }, jsonOptions);
-                            }
-                        }
-                    }
-                }
-                else if (url == "/api/profiles/select" && request.HttpMethod == "POST")
-                {
-                    using (var reader = new StreamReader(request.InputStream, request.ContentEncoding ?? Encoding.UTF8))
-                    {
-                        string body = await reader.ReadToEndAsync();
-                        if (string.IsNullOrWhiteSpace(body))
-                        {
-                            response.StatusCode = 400;
-                            jsonResponse = JsonSerializer.Serialize(new { error = "Profile name is required" }, jsonOptions);
-                        }
-                        else
-                        {
-                            ProfileSelectionRequest selection = null;
-                            try
-                            {
-                                selection = JsonSerializer.Deserialize<ProfileSelectionRequest>(body, jsonOptions);
-                            }
-                            catch (JsonException ex)
-                            {
-                                response.StatusCode = 400;
-                                LogError("Invalid profile selection payload", ex);
-                                jsonResponse = JsonSerializer.Serialize(new { error = "Invalid JSON payload" }, jsonOptions);
-                            }
-
-                            if (selection == null || string.IsNullOrWhiteSpace(selection.ProfileName))
-                            {
-                                response.StatusCode = 400;
-                                jsonResponse = JsonSerializer.Serialize(new { error = "Profile name is required" }, jsonOptions);
-                            }
-                            else
-                            {
-                                bool applied = ApplyProfileSelection(selection.ProfileName);
-                                if (!applied)
-                                {
-                                    response.StatusCode = 404;
-                                    jsonResponse = JsonSerializer.Serialize(new { error = "Profile not found" }, jsonOptions);
-                                }
-                                else
-                                {
-                                    var updatedConfig = CaptureCurrentConfig();
-                                    jsonResponse = JsonSerializer.Serialize(new { success = true, currentProfile = selection.ProfileName, config = updatedConfig }, jsonOptions);
-                                    LogMessage($"Profile '{selection.ProfileName}' applied via API");
-                                }
-                            }
-                        }
                     }
                 }
                 else if (url == "/api/run" && request.HttpMethod == "POST")
@@ -949,6 +818,169 @@ namespace Sortarr
                 {
                     jsonResponse = GetLogsAsJson();
                 }
+                else if (url == "/api/schedule/status" && request.HttpMethod == "GET")
+                {
+                    bool isScheduled = IsTaskScheduled();
+                    jsonResponse = JsonSerializer.Serialize(new { scheduled = isScheduled }, jsonOptions);
+                    LogMessage($"Schedule status requested: {isScheduled}");
+                }
+                else if (url == "/api/schedule/create" && request.HttpMethod == "POST")
+                {
+                    using (var reader = new StreamReader(request.InputStream, request.ContentEncoding ?? Encoding.UTF8))
+                    {
+                        string body = await reader.ReadToEndAsync();
+
+                        if (string.IsNullOrWhiteSpace(body))
+                        {
+                            response.StatusCode = 400;
+                            jsonResponse = JsonSerializer.Serialize(new { error = "Request body is required" }, jsonOptions);
+                        }
+                        else
+                        {
+                            try
+                            {
+                                var scheduleRequest = JsonSerializer.Deserialize<Dictionary<string, object>>(body, jsonOptions);
+
+                                // Simulate the automateBtn_Click functionality
+                                var success = ExecuteOnUiThread(() =>
+                                {
+                                    try
+                                    {
+                                        automateBtn_Click(null, EventArgs.Empty);
+                                        return true;
+                                    }
+                                    catch
+                                    {
+                                        return false;
+                                    }
+                                });
+
+                                if (success)
+                                {
+                                    jsonResponse = JsonSerializer.Serialize(new { success = true, message = "Scheduled task created successfully" }, jsonOptions);
+                                    LogMessage("Scheduled task created via API");
+                                }
+                                else
+                                {
+                                    response.StatusCode = 500;
+                                    jsonResponse = JsonSerializer.Serialize(new { success = false, error = "Failed to create scheduled task" }, jsonOptions);
+                                }
+                            }
+                            catch (JsonException ex)
+                            {
+                                response.StatusCode = 400;
+                                jsonResponse = JsonSerializer.Serialize(new { error = "Invalid JSON payload" }, jsonOptions);
+                                LogError("Invalid JSON in schedule create request", ex);
+                            }
+                        }
+                    }
+                }
+                else if (url == "/api/schedule/remove" && request.HttpMethod == "POST")
+                {
+                    var success = ExecuteOnUiThread(() =>
+                    {
+                        try
+                        {
+                            removeSortarrAutomation_Click(null, EventArgs.Empty);
+                            return true;
+                        }
+                        catch
+                        {
+                            return false;
+                        }
+                    });
+
+                    if (success)
+                    {
+                        jsonResponse = JsonSerializer.Serialize(new { success = true, message = "Scheduled task removed successfully" }, jsonOptions);
+                        LogMessage("Scheduled task removed via API");
+                    }
+                    else
+                    {
+                        response.StatusCode = 500;
+                        jsonResponse = JsonSerializer.Serialize(new { success = false, error = "Failed to remove scheduled task" }, jsonOptions);
+                    }
+                }
+                else if (url.StartsWith("/api/browse") && request.HttpMethod == "GET")
+                {
+                    var queryParams = ParseQueryString(request.Url.Query);
+
+                    if (url == "/api/browse")
+                    {
+                        string path = queryParams["path"] ?? "C:\\";
+                        string type = queryParams["type"] ?? "folder";
+
+                        try
+                        {
+                            var items = new List<object>();
+
+                            if (Directory.Exists(path))
+                            {
+                                // Add directories
+                                var directories = Directory.GetDirectories(path);
+                                foreach (var dir in directories)
+                                {
+                                    var dirInfo = new DirectoryInfo(dir);
+                                    items.Add(new
+                                    {
+                                        name = dirInfo.Name,
+                                        path = dirInfo.FullName,
+                                        type = "directory",
+                                        isDirectory = true
+                                    });
+                                }
+
+                                // Add files if browsing for files
+                                if (type == "file")
+                                {
+                                    var files = Directory.GetFiles(path, "*.exe");
+                                    foreach (var file in files)
+                                    {
+                                        var fileInfo = new FileInfo(file);
+                                        items.Add(new
+                                        {
+                                            name = fileInfo.Name,
+                                            path = fileInfo.FullName,
+                                            type = "file",
+                                            isDirectory = false
+                                        });
+                                    }
+                                }
+                            }
+
+                            jsonResponse = JsonSerializer.Serialize(new { items = items.ToArray() }, jsonOptions);
+                        }
+                        catch (Exception ex)
+                        {
+                            response.StatusCode = 500;
+                            jsonResponse = JsonSerializer.Serialize(new { error = $"Error browsing path: {ex.Message}" }, jsonOptions);
+                            LogError($"Error browsing path {path}", ex);
+                        }
+                    }
+                    else if (url == "/api/browse/parent")
+                    {
+                        string path = queryParams["path"] ?? "C:\\";
+
+                        try
+                        {
+                            var dirInfo = new DirectoryInfo(path);
+                            var parentPath = dirInfo.Parent?.FullName ?? path;
+
+                            jsonResponse = JsonSerializer.Serialize(new { parentPath = parentPath }, jsonOptions);
+                        }
+                        catch (Exception ex)
+                        {
+                            response.StatusCode = 500;
+                            jsonResponse = JsonSerializer.Serialize(new { error = $"Error getting parent path: {ex.Message}" }, jsonOptions);
+                            LogError($"Error getting parent of {path}", ex);
+                        }
+                    }
+                    else
+                    {
+                        response.StatusCode = 404;
+                        jsonResponse = "{\"error\": \"API endpoint not found\"}";
+                    }
+                }
                 else
                 {
                     response.StatusCode = 404;
@@ -986,50 +1018,7 @@ namespace Sortarr
             }
         }
 
-        private string GetProfilesAsJson()
-        {
-            try
-            {
-                var profiles = GetProfileNames();
-                return JsonSerializer.Serialize(profiles, jsonOptions);
-            }
-            catch
-            {
-                return "[]";
-            }
-        }
 
-        private string GetProfileAsJson(string profileName)
-        {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(profileName))
-                {
-                    return JsonSerializer.Serialize(new { error = "Profile name is required" }, jsonOptions);
-                }
-
-                string profileFile = Path.Combine(profilePath, profileName + ".txt");
-                if (!File.Exists(profileFile))
-                {
-                    return JsonSerializer.Serialize(new { error = "Profile not found" }, jsonOptions);
-                }
-
-                var settings = File.ReadAllLines(profileFile)
-                    .Select(line => line.Split(new[] { '=' }, 2))
-                    .Where(parts => parts.Length == 2)
-                    .ToDictionary(parts => parts[0], parts => parts[1]);
-
-                var config = BuildConfigFromSettings(settings, profileName);
-                config.CurrentProfile = profileName;
-
-                return JsonSerializer.Serialize(config, jsonOptions);
-            }
-            catch (Exception ex)
-            {
-                LogError($"Error reading profile '{profileName}'", ex);
-                return JsonSerializer.Serialize(new { error = "Failed to load profile" }, jsonOptions);
-            }
-        }
 
         private WebConfigData CaptureCurrentConfig()
         {
@@ -1076,8 +1065,7 @@ namespace Sortarr
                     TvFormatOverride = overrideTVShowsTextBox.Text,
                     EnableRemoteConfig = checkboxEnableRemoteConfig.Checked,
                     ServerPort = 6969,
-                    EnableSystemTray = checkboxMinimizeToTray.Checked,
-                    CurrentProfile = profileSelector.Text
+                    EnableSystemTray = checkboxMinimizeToTray.Checked
                 };
 
                 return config;
@@ -1150,12 +1138,139 @@ namespace Sortarr
                 if (update.EnableSystemTray.HasValue)
                     checkboxMinimizeToTray.Checked = update.EnableSystemTray.Value;
 
-                if (!string.IsNullOrWhiteSpace(update.CurrentProfile) && profileSelector.Items.Contains(update.CurrentProfile))
-                    profileSelector.SelectedItem = update.CurrentProfile;
 
                 UpdateControlVisibility();
                 ValidateSetup();
             });
+        }
+
+        private void AutoSaveSettings()
+        {
+            try
+            {
+                var config = CaptureCurrentConfig();
+                var configWithTrayChoice = new
+                {
+                    config.FilebotPath,
+                    config.DownloadsFolder,
+                    config.EnableHDMovies,
+                    config.HdMovieCount,
+                    config.HdMovieFolders,
+                    config.Enable4KMovies,
+                    config.MovieCount4K,
+                    config.MovieFolders4K,
+                    config.EnableHDTV,
+                    config.HdTVCount,
+                    config.HdTVFolders,
+                    config.Enable4KTV,
+                    config.TvCount4K,
+                    config.TvFolders4K,
+                    config.EnableScheduling,
+                    config.ScheduleInterval,
+                    config.EnableOverrides,
+                    config.MovieFormatOverride,
+                    config.TvFormatOverride,
+                    config.EnableRemoteConfig,
+                    config.EnableSystemTray,
+                    TrayChoiceMade = trayChoiceMade
+                };
+
+                string json = JsonSerializer.Serialize(configWithTrayChoice, jsonOptions);
+                File.WriteAllText(settingsFilePath, json);
+                LogMessage("Settings automatically saved");
+            }
+            catch (Exception ex)
+            {
+                LogError("Failed to auto-save settings", ex);
+            }
+        }
+
+        private void AutoLoadSettings()
+        {
+            try
+            {
+                if (!File.Exists(settingsFilePath))
+                {
+                    LogMessage("No settings file found, using defaults");
+                    return;
+                }
+
+                string json = File.ReadAllText(settingsFilePath);
+                var settings = JsonSerializer.Deserialize<JsonElement>(json, jsonOptions);
+
+                ExecuteOnUiThread(() =>
+                {
+                    // Load tray choice
+                    if (settings.TryGetProperty("trayChoiceMade", out var trayChoiceProperty))
+                    {
+                        trayChoiceMade = trayChoiceProperty.GetBoolean();
+                    }
+
+                    // Apply the configuration
+                    var update = new WebConfigUpdate
+                    {
+                        FilebotPath = GetStringProperty(settings, "filebotPath"),
+                        DownloadsFolder = GetStringProperty(settings, "downloadsFolder"),
+                        EnableHDMovies = GetBoolProperty(settings, "enableHDMovies"),
+                        HdMovieCount = GetIntProperty(settings, "hdMovieCount"),
+                        HdMovieFolders = GetStringArrayProperty(settings, "hdMovieFolders"),
+                        Enable4KMovies = GetBoolProperty(settings, "enable4KMovies"),
+                        MovieCount4K = GetIntProperty(settings, "movieCount4K"),
+                        MovieFolders4K = GetStringArrayProperty(settings, "movieFolders4K"),
+                        EnableHDTV = GetBoolProperty(settings, "enableHDTV"),
+                        HdTVCount = GetIntProperty(settings, "hdTVCount"),
+                        HdTVFolders = GetStringArrayProperty(settings, "hdTVFolders"),
+                        Enable4KTV = GetBoolProperty(settings, "enable4KTV"),
+                        TvCount4K = GetIntProperty(settings, "tvCount4K"),
+                        TvFolders4K = GetStringArrayProperty(settings, "tvFolders4K"),
+                        EnableScheduling = GetBoolProperty(settings, "enableScheduling"),
+                        ScheduleInterval = GetIntProperty(settings, "scheduleInterval"),
+                        EnableOverrides = GetBoolProperty(settings, "enableOverrides"),
+                        MovieFormatOverride = GetStringProperty(settings, "movieFormatOverride"),
+                        TvFormatOverride = GetStringProperty(settings, "tvFormatOverride"),
+                        EnableRemoteConfig = GetBoolProperty(settings, "enableRemoteConfig"),
+                        EnableSystemTray = GetBoolProperty(settings, "enableSystemTray")
+                    };
+
+                    ApplyConfigUpdate(update);
+                    UpdateControlVisibility();
+                    ValidateSetup();
+                });
+
+                LogMessage("Settings automatically loaded");
+            }
+            catch (Exception ex)
+            {
+                LogError("Failed to auto-load settings", ex);
+            }
+        }
+
+        private string GetStringProperty(JsonElement settings, string propertyName)
+        {
+            return settings.TryGetProperty(propertyName, out var property) ? property.GetString() : null;
+        }
+
+        private bool? GetBoolProperty(JsonElement settings, string propertyName)
+        {
+            if (settings.TryGetProperty(propertyName, out var property))
+                return property.GetBoolean();
+            return null;
+        }
+
+        private int? GetIntProperty(JsonElement settings, string propertyName)
+        {
+            if (settings.TryGetProperty(propertyName, out var property))
+                return property.GetInt32();
+            return null;
+        }
+
+        private string[] GetStringArrayProperty(JsonElement settings, string propertyName)
+        {
+            if (settings.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.Array)
+            {
+                return property.EnumerateArray().Select(item => item.GetString()).ToArray();
+            }
+            return null;
         }
 
         private decimal ClampNumeric(NumericUpDown control, int value)
@@ -1209,44 +1324,7 @@ namespace Sortarr
             return value;
         }
 
-        private string[] GetProfileNames()
-        {
-            try
-            {
-                if (!Directory.Exists(profilePath))
-                    return Array.Empty<string>();
 
-                return Directory.GetFiles(profilePath, "*.txt")
-                    .Select(Path.GetFileNameWithoutExtension)
-                    .OrderBy(p => p)
-                    .ToArray();
-            }
-            catch (Exception ex)
-            {
-                LogError("Failed to enumerate profiles", ex);
-                return Array.Empty<string>();
-            }
-        }
-
-        private bool ApplyProfileSelection(string profileName)
-        {
-            if (string.IsNullOrWhiteSpace(profileName))
-                return false;
-
-            bool applied = false;
-
-            ExecuteOnUiThread(() =>
-            {
-                if (!profileSelector.Items.Contains(profileName))
-                    return;
-
-                profileSelector.SelectedItem = profileName;
-                loadProfileBtn.PerformClick();
-                applied = true;
-            });
-
-            return applied;
-        }
 
         private WebConfigData BuildConfigFromSettings(Dictionary<string, string> settings, string profileName = null)
         {
@@ -1293,8 +1371,7 @@ namespace Sortarr
                 TvFormatOverride = settings.TryGetValue("OverrideTVShowsFormat", out var tvFormat) ? tvFormat : string.Empty,
                 EnableRemoteConfig = ParseBool(settings, "RemoteConfigEnabled"),
                 ServerPort = 6969,
-                EnableSystemTray = ParseBool(settings, "MinimizeToTray"),
-                CurrentProfile = profileSelector.Text
+                EnableSystemTray = ParseBool(settings, "MinimizeToTray")
             };
 
             return config;
@@ -1323,9 +1400,35 @@ namespace Sortarr
             return value;
         }
 
-        private class ProfileSelectionRequest
+        private static Dictionary<string, string> ParseQueryString(string query)
         {
-            public string ProfileName { get; set; }
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            if (string.IsNullOrEmpty(query))
+                return result;
+
+            // Remove leading '?' if present
+            if (query.StartsWith("?"))
+                query = query.Substring(1);
+
+            var pairs = query.Split('&');
+            foreach (var pair in pairs)
+            {
+                var keyValue = pair.Split('=');
+                if (keyValue.Length >= 2)
+                {
+                    var key = Uri.UnescapeDataString(keyValue[0]);
+                    var value = Uri.UnescapeDataString(keyValue[1]);
+                    result[key] = value;
+                }
+                else if (keyValue.Length == 1)
+                {
+                    var key = Uri.UnescapeDataString(keyValue[0]);
+                    result[key] = "";
+                }
+            }
+
+            return result;
         }
 
         private class WebConfigData
@@ -1352,7 +1455,6 @@ namespace Sortarr
             public bool EnableRemoteConfig { get; set; }
             public int ServerPort { get; set; }
             public bool EnableSystemTray { get; set; }
-            public string CurrentProfile { get; set; }
         }
 
         private class WebConfigUpdate
@@ -1378,7 +1480,6 @@ namespace Sortarr
             public string TvFormatOverride { get; set; }
             public bool? EnableRemoteConfig { get; set; }
             public bool? EnableSystemTray { get; set; }
-            public string CurrentProfile { get; set; }
         }
 
         private string GetLogsAsJson()
@@ -1517,10 +1618,10 @@ namespace Sortarr
         {
             try
             {
-                // Check if at least one profile exists
-                if (!Directory.GetFiles(profilePath, "*.txt").Any())
+                // Check if settings exist
+                if (!File.Exists(settingsFilePath))
                 {
-                    string errorMessage = "Cannot create scheduled task: No profiles found. Please save a profile first.";
+                    string errorMessage = "Cannot create scheduled task: No settings found. Please configure Sortarr first.";
                     LogError("Task Creation Error", errorMessage);
                     ShowErrorMessage(errorMessage);
                     return;
@@ -1677,43 +1778,6 @@ namespace Sortarr
             }
         }
 
-        private void deleteProfileBtn_Click(object sender, EventArgs e)
-        {
-            string profileName = profileSelector.Text.Trim();
-            if (string.IsNullOrWhiteSpace(profileName))
-            {
-                LogMessage("No profile selected to delete.");
-                if (!isAutomated && IsHandleCreated)
-                    BeginInvoke((SystemAction)(() => MessageBox.Show("Please select a profile to delete.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning)));
-                return;
-            }
-
-            string path = Path.Combine(profilePath, profileName + ".txt");
-            if (!File.Exists(path))
-            {
-                LogMessage($"Profile '{profileName}' not found.");
-                if (!isAutomated && IsHandleCreated)
-                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Profile '{profileName}' not found.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
-                return;
-            }
-
-            try
-            {
-                File.Delete(path);
-                LogMessage($"Profile '{profileName}' deleted successfully.");
-                if (!isAutomated && IsHandleCreated)
-                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Profile '{profileName}' deleted successfully.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information)));
-                LoadProfilesToDropdown();
-                profileSelector.Text = "";
-            }
-            catch (Exception ex)
-            {
-                LogMessage($"Failed to delete profile '{profileName}': {ex.Message}");
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Profile Deletion Error: {profileName}\nException: {ex.Message}\n\n");
-                if (!isAutomated && IsHandleCreated)
-                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to delete profile '{profileName}': {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
-            }
-        }
 
         private void UpdateControlVisibility()
         {
@@ -1976,83 +2040,14 @@ namespace Sortarr
             BrowseForFolder(targetBox);
         }
 
-        private List<string> BuildProfileLinesFromUi()
-        {
-            return new List<string>
-            {
-                "HDMovieEnabled=" + checkboxMovie.Checked,
-                "HDMovieCount=" + upDownMovie.Value,
-                "HDMovie1=" + (sourceFolderMovies1.Text == "Default" ? "" : sourceFolderMovies1.Text),
-                "HDMovie2=" + sourceFolderMovies2.Text,
-                "HDMovie3=" + sourceFolderMovies3.Text,
-                "HDMovie4=" + sourceFolderMovies4.Text,
-                "HDMovie5=" + sourceFolderMovies5.Text,
-                "4KMovieEnabled=" + checkbox4KMovie.Checked,
-                "4KMovieCount=" + upDown4KMovie.Value,
-                "4KMovie1=" + (sourceFolder4kMovies1.Text == "Default" ? "" : sourceFolder4kMovies1.Text),
-                "4KMovie2=" + sourceFolder4kMovies2.Text,
-                "4KMovie3=" + sourceFolder4kMovies3.Text,
-                "4KMovie4=" + sourceFolder4kMovies4.Text,
-                "4KMovie5=" + sourceFolder4kMovies5.Text,
-                "HDTVEnabled=" + checkboxTVShow.Checked,
-                "HDTVCount=" + upDownTVShow.Value,
-                "HDTV1=" + (sourceFolderTVShows1.Text == "Default" ? "" : sourceFolderTVShows1.Text),
-                "HDTV2=" + sourceFolderTVShows2.Text,
-                "HDTV3=" + sourceFolderTVShows3.Text,
-                "HDTV4=" + sourceFolderTVShows4.Text,
-                "HDTV5=" + sourceFolderTVShows5.Text,
-                "4KTVEnabled=" + checkbox4KTVShow.Checked,
-                "4KTVCount=" + upDown4KTVShow.Value,
-                "4KTV1=" + (sourceFolder4kTVShows1.Text == "Default" ? "" : sourceFolder4kTVShows1.Text),
-                "4KTV2=" + sourceFolder4kTVShows2.Text,
-                "4KTV3=" + sourceFolder4kTVShows3.Text,
-                "4KTV4=" + sourceFolder4kTVShows4.Text,
-                "4KTV5=" + sourceFolder4kTVShows5.Text,
-                "FileBot=" + sourceFilebotFolder.Text,
-                "Downloads=" + sourceDownloadsFolder.Text,
-                "OverrideParametersEnabled=" + checkboxOverrideSortarrParameters.Checked,
-                "OverrideMoviesFormat=" + overrideMoviesTextBox.Text,
-                "OverrideTVShowsFormat=" + overrideTVShowsTextBox.Text,
-                "RemoteConfigEnabled=" + checkboxEnableRemoteConfig.Checked,
-                "MinimizeToTray=" + checkboxMinimizeToTray.Checked
-            };
-        }
 
-        private void saveProfileBtn_Click(object sender, EventArgs e)
-        {
-            string profileName = profileSelector.Text.Trim();
-            if (string.IsNullOrWhiteSpace(profileName))
-            {
-                LogMessage("No profile name entered for saving.");
-                if (!isAutomated && IsHandleCreated)
-                    BeginInvoke((SystemAction)(() => MessageBox.Show("Enter a profile name to save.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning)));
-                return;
-            }
 
-            string path = Path.Combine(profilePath, profileName + ".txt");
-            var lines = BuildProfileLinesFromUi();
-
-            try
-            {
-                File.WriteAllLines(path, lines);
-                LoadProfilesToDropdown();
-                LogMessage($"Profile '{profileName}' saved successfully.");
-                if (!isAutomated && IsHandleCreated)
-                    BeginInvoke((SystemAction)(() => MessageBox.Show("Profile saved!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information)));
-            }
-            catch (Exception ex)
-            {
-                LogMessage($"Failed to save profile '{profileName}': {ex.Message}");
-                File.AppendAllText(logFilePath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Profile Save Error: {profileName}\nException: {ex.Message}\n\n");
-                if (!isAutomated && IsHandleCreated)
-                    BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to save profile '{profileName}': {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
-            }
-        }
-
+        // OBSOLETE: Profile system removed - replaced with auto-save JSON settings
+        /*
         private void loadProfileBtn_Click(object sender, EventArgs e)
         {
-            string profileName = profileSelector.Text.Trim();
-            string path = Path.Combine(profilePath, profileName + ".txt");
+            string profileName = ""; // profileSelector.Text.Trim();
+            string path = ""; // Path.Combine(profilePath, profileName + ".txt");
 
             if (!File.Exists(path))
             {
@@ -2129,7 +2124,10 @@ namespace Sortarr
                     BeginInvoke((SystemAction)(() => MessageBox.Show($"Failed to load profile '{profileName}': {ex.Message}\nCheck {logFilePath} for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)));
             }
         }
+        */
 
+        // OBSOLETE: Profile system removed - replaced with auto-save JSON settings
+        /*
         private void LoadProfilesToDropdown()
         {
             profileSelector.Items.Clear();
@@ -2141,6 +2139,7 @@ namespace Sortarr
                     profileSelector.Items.Add(profileName);
             }
         }
+        */
 
         private bool ValidateInputs(bool showErrors = true)
         {
@@ -2783,9 +2782,9 @@ namespace Sortarr
                     e.Cancel = true;
                     MinimizeToTray();
                 }
-                else
+                else if (!trayChoiceMade)
                 {
-                    // Show dialog to ask user preference
+                    // Show dialog to ask user preference (only once)
                     DialogResult result = MessageBox.Show(
                         "Do you want to minimize Sortarr to the system tray instead of closing?\n\n" +
                         "Click 'Yes' to minimize to tray (this will enable the setting)\n" +
@@ -2802,17 +2801,25 @@ namespace Sortarr
                             checkboxMinimizeToTray.Checked = true;
                         else
                             minimizeToTray = true;
+                        trayChoiceMade = true;
                         e.Cancel = true;
                         MinimizeToTray();
                         LogMessage("Minimize to tray enabled and application minimized.");
+                    }
+                    else if (result == DialogResult.No)
+                    {
+                        // User chose not to minimize to tray, remember this choice
+                        trayChoiceMade = true;
+                        LogMessage("User chose not to minimize to tray.");
+                        // Let the application close normally
                     }
                     else if (result == DialogResult.Cancel)
                     {
                         // Cancel closing
                         e.Cancel = true;
                     }
-                    // DialogResult.No will allow normal closing
                 }
+                // If trayChoiceMade is true and minimizeToTray is false, close normally without asking
             }
 
             if (!e.Cancel)
@@ -2820,6 +2827,7 @@ namespace Sortarr
                 // Proceed with normal closing
                 allowVisible = false;
                 notifyIcon.Visible = false;
+                AutoSaveSettings();
             }
         }
 

@@ -9,11 +9,6 @@
         private System.Windows.Forms.TabPage tabInstructions;
         private System.Windows.Forms.ListBox logBox;
         private System.Windows.Forms.Button sortarrBtn;
-        private System.Windows.Forms.GroupBox groupBoxProfiles;
-        private System.Windows.Forms.ComboBox profileSelector;
-        private System.Windows.Forms.Button saveProfileBtn;
-        private System.Windows.Forms.Button loadProfileBtn;
-        private System.Windows.Forms.Button deleteProfileBtn;
         private System.Windows.Forms.GroupBox groupBoxHDMovies;
         private System.Windows.Forms.CheckBox checkboxMovie;
         private System.Windows.Forms.NumericUpDown upDownMovie;
@@ -107,11 +102,6 @@
             this.logBox = new System.Windows.Forms.ListBox();
             this.sortarrBtn = new System.Windows.Forms.Button();
             this.tabSetup = new System.Windows.Forms.TabPage();
-            this.groupBoxProfiles = new System.Windows.Forms.GroupBox();
-            this.profileSelector = new System.Windows.Forms.ComboBox();
-            this.saveProfileBtn = new System.Windows.Forms.Button();
-            this.loadProfileBtn = new System.Windows.Forms.Button();
-            this.deleteProfileBtn = new System.Windows.Forms.Button();
             this.groupBoxHDMovies = new System.Windows.Forms.GroupBox();
             this.checkboxMovie = new System.Windows.Forms.CheckBox();
             this.upDownMovie = new System.Windows.Forms.NumericUpDown();
@@ -204,7 +194,6 @@
             this.tabControlSortarr.SuspendLayout();
             this.tabMain.SuspendLayout();
             this.tabSetup.SuspendLayout();
-            this.groupBoxProfiles.SuspendLayout();
             this.groupBoxHDMovies.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.upDownMovie)).BeginInit();
             this.groupBox4KMovies.SuspendLayout();
@@ -267,7 +256,6 @@
             // 
             // tabSetup
             // 
-            this.tabSetup.Controls.Add(this.groupBoxProfiles);
             this.tabSetup.Controls.Add(this.groupBoxHDMovies);
             this.tabSetup.Controls.Add(this.groupBox4KMovies);
             this.tabSetup.Controls.Add(this.groupBoxHDTVShows);
@@ -282,53 +270,7 @@
             this.tabSetup.Text = "Setup";
             this.tabSetup.UseVisualStyleBackColor = true;
             // 
-            // groupBoxProfiles
-            // 
-            this.groupBoxProfiles.Controls.Add(this.profileSelector);
-            this.groupBoxProfiles.Controls.Add(this.saveProfileBtn);
-            this.groupBoxProfiles.Controls.Add(this.loadProfileBtn);
-            this.groupBoxProfiles.Controls.Add(this.deleteProfileBtn);
-            this.groupBoxProfiles.Location = new System.Drawing.Point(20, 20);
-            this.groupBoxProfiles.Name = "groupBoxProfiles";
-            this.groupBoxProfiles.Size = new System.Drawing.Size(952, 80);
-            this.groupBoxProfiles.TabIndex = 0;
-            this.groupBoxProfiles.TabStop = false;
-            this.groupBoxProfiles.Text = "Profile Management";
-            // 
-            // profileSelector
-            // 
-            this.profileSelector.Location = new System.Drawing.Point(10, 30);
-            this.profileSelector.Name = "profileSelector";
-            this.profileSelector.Size = new System.Drawing.Size(300, 21);
-            this.profileSelector.TabIndex = 0;
-            // 
-            // saveProfileBtn
-            // 
-            this.saveProfileBtn.Location = new System.Drawing.Point(316, 24);
-            this.saveProfileBtn.Name = "saveProfileBtn";
-            this.saveProfileBtn.Size = new System.Drawing.Size(100, 30);
-            this.saveProfileBtn.TabIndex = 1;
-            this.saveProfileBtn.Text = "Save Profile";
-            this.saveProfileBtn.UseVisualStyleBackColor = true;
-            // 
-            // loadProfileBtn
-            // 
-            this.loadProfileBtn.Location = new System.Drawing.Point(422, 24);
-            this.loadProfileBtn.Name = "loadProfileBtn";
-            this.loadProfileBtn.Size = new System.Drawing.Size(100, 30);
-            this.loadProfileBtn.TabIndex = 2;
-            this.loadProfileBtn.Text = "Load Profile";
-            this.loadProfileBtn.UseVisualStyleBackColor = true;
-            // 
-            // deleteProfileBtn
-            // 
-            this.deleteProfileBtn.Location = new System.Drawing.Point(528, 24);
-            this.deleteProfileBtn.Name = "deleteProfileBtn";
-            this.deleteProfileBtn.Size = new System.Drawing.Size(100, 30);
-            this.deleteProfileBtn.TabIndex = 3;
-            this.deleteProfileBtn.Text = "Delete Profile";
-            this.deleteProfileBtn.UseVisualStyleBackColor = true;
-            // 
+ 
             // groupBoxHDMovies
             // 
             this.groupBoxHDMovies.Controls.Add(this.checkboxMovie);
@@ -596,7 +538,7 @@
             this.groupBoxHDTVShows.Controls.Add(this.browseTVShowLocationBtn3);
             this.groupBoxHDTVShows.Controls.Add(this.browseTVShowLocationBtn4);
             this.groupBoxHDTVShows.Controls.Add(this.browseTVShowLocationBtn5);
-            this.groupBoxHDTVShows.Location = new System.Drawing.Point(20, 340);
+            this.groupBoxHDTVShows.Location = new System.Drawing.Point(20, 330);
             this.groupBoxHDTVShows.Name = "groupBoxHDTVShows";
             this.groupBoxHDTVShows.Size = new System.Drawing.Size(460, 220);
             this.groupBoxHDTVShows.TabIndex = 3;
@@ -722,7 +664,7 @@
             this.groupBox4KTVShows.Controls.Add(this.browseTVShowLocation4kBtn3);
             this.groupBox4KTVShows.Controls.Add(this.browseTVShowLocation4kBtn4);
             this.groupBox4KTVShows.Controls.Add(this.browseTVShowLocation4kBtn5);
-            this.groupBox4KTVShows.Location = new System.Drawing.Point(500, 340);
+            this.groupBox4KTVShows.Location = new System.Drawing.Point(500, 330);
             this.groupBox4KTVShows.Name = "groupBox4KTVShows";
             this.groupBox4KTVShows.Size = new System.Drawing.Size(460, 220);
             this.groupBox4KTVShows.TabIndex = 4;
@@ -839,7 +781,7 @@
             this.groupBoxFileBot.Controls.Add(this.browseFilebotLocationBtn);
             this.groupBoxFileBot.Controls.Add(this.sourceDownloadsFolder);
             this.groupBoxFileBot.Controls.Add(this.browseDownloadsLocationBtn);
-            this.groupBoxFileBot.Location = new System.Drawing.Point(20, 570);
+            this.groupBoxFileBot.Location = new System.Drawing.Point(20, 20);
             this.groupBoxFileBot.Name = "groupBoxFileBot";
             this.groupBoxFileBot.Size = new System.Drawing.Size(940, 80);
             this.groupBoxFileBot.TabIndex = 5;
@@ -1153,7 +1095,6 @@
             this.tabControlSortarr.ResumeLayout(false);
             this.tabMain.ResumeLayout(false);
             this.tabSetup.ResumeLayout(false);
-            this.groupBoxProfiles.ResumeLayout(false);
             this.groupBoxHDMovies.ResumeLayout(false);
             this.groupBoxHDMovies.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)(this.upDownMovie)).EndInit();
