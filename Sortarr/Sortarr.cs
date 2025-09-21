@@ -699,7 +699,11 @@ namespace Sortarr
                 response.Headers.Add("Access-Control-Allow-Headers", "Content-Type");
                 response.ContentType = "application/json";
 
-                LogMessage($"API request: {request.HttpMethod} {url}");
+                // Only log API requests that aren't frequent polling calls
+                if (!(url == "/api/logs" || (url == "/api/config" && request.HttpMethod == "GET")))
+                {
+                    LogMessage($"API request: {request.HttpMethod} {url}");
+                }
 
                 if (request.HttpMethod == "OPTIONS")
                 {
@@ -713,7 +717,7 @@ namespace Sortarr
                     {
                         var config = CaptureCurrentConfig();
                         jsonResponse = JsonSerializer.Serialize(config, jsonOptions);
-                        LogMessage("Returning current configuration via API");
+                        // Silenced: "Returning current configuration via API" - too verbose
                     }
                     else if (request.HttpMethod == "POST")
                     {
@@ -1133,7 +1137,11 @@ namespace Sortarr
                     overrideTVShowsTextBox.Text = update.TvFormatOverride;
 
                 if (update.EnableRemoteConfig.HasValue)
+                {
                     checkboxEnableRemoteConfig.Checked = update.EnableRemoteConfig.Value;
+                    openLocalHostBtn.Enabled = checkboxEnableRemoteConfig.Checked;
+                    sortarrPortTxt.Visible = checkboxEnableRemoteConfig.Checked;
+                }
 
                 if (update.EnableSystemTray.HasValue)
                     checkboxMinimizeToTray.Checked = update.EnableSystemTray.Value;

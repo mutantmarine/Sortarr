@@ -65,22 +65,7 @@ class SortarrWeb {
         bindClick('runSortarrBtn', () => this.runSortarr());
         bindClick('stopSortarrBtn', () => this.stopSortarr());
 
-        // Log Controls
-        bindClick('clearLogBtn', () => this.clearLog());
-        bindClick('refreshLogBtn', () => this.refreshLog());
-        const autoRefreshLog = document.getElementById('autoRefreshLog');
-        if (autoRefreshLog) {
-            autoRefreshLog.addEventListener('change', (e) => {
-                if (e.target.checked) {
-                    this.startLogPolling();
-                } else {
-                    this.stopLogPolling();
-                }
-            });
-        }
-
-        // Configuration
-        bindClick('saveConfigBtn', () => this.saveConfiguration());
+        // Log Controls - Auto-refresh is always enabled
 
         // Advanced Controls
         const enableScheduling = document.getElementById('enableScheduling');
@@ -604,9 +589,7 @@ class SortarrWeb {
         if (this.logUpdateInterval) return;
 
         this.logUpdateInterval = setInterval(() => {
-            if (document.getElementById('autoRefreshLog').checked) {
-                this.refreshLog();
-            }
+            this.refreshLog();
         }, 2000);
     }
 
