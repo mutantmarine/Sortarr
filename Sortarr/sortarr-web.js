@@ -6,9 +6,6 @@ class SortarrWeb {
         this.isRunning = false;
         this.logUpdateInterval = null;
         this.configPollingTimer = null;
-        this.currentPath = 'C\\\\';
-        this.browserTarget = null;
-        this.browserMode = 'folder'; // 'folder' or 'file'
         this.init();
     }
 
@@ -668,85 +665,23 @@ class SortarrWeb {
 
     // File Browser
     async browseFile(targetId) {
-        this.browserTarget = targetId;
-        this.browserMode = 'file';
-        document.getElementById('browserTitle').textContent = 'Select File';
-        await this.openFileBrowser();
+        const result = await this.apiCall('browse/file', 'POST');
+        if (result && result.success && result.path) {
+            document.getElementById(targetId).value = result.path;
+            // Trigger auto-save after path selection
+            this.saveConfiguration();
+        }
     }
 
     async browseFolder(targetId) {
-        this.browserTarget = targetId;
-        this.browserMode = 'folder';
-        document.getElementById('browserTitle').textContent = 'Select Folder';
-        await this.openFileBrowser();
-    }
-
-    async openFileBrowser() {
-        document.getElementById('fileBrowserModal').style.display = 'block';
-        await this.loadBrowserContent();
-    }
-
-    closeFileBrowser() {
-        document.getElementById('fileBrowserModal').style.display = 'none';
-    }
-
-    async loadBrowserContent() {
-        const items = await this.apiCall(`browse?path=${encodeURIComponent(this.currentPath)}&type=${this.browserMode}`);
-        const container = document.getElementById('browserContent');
-
-        document.getElementById('currentPath').textContent = this.currentPath;
-        container.innerHTML = '';
-
-        if (items) {
-            items.forEach(item => {
-                const div = document.createElement('div');
-                div.className = 'browser-item';
-                div.onclick = () => this.selectBrowserItem(div, item);
-
-                const icon = item.isDirectory ? '📁' : '📄';
-                div.innerHTML = `
-                    <span class="browser-item-icon">${icon}</span>
-                    <span>${item.name}</span>
-                `;
-                div.dataset.path = item.path;
-                div.dataset.isDirectory = item.isDirectory;
-
-                container.appendChild(div);
-            });
+        const result = await this.apiCall('browse/folder', 'POST');
+        if (result && result.success && result.path) {
+            document.getElementById(targetId).value = result.path;
+            // Trigger auto-save after path selection
+            this.saveConfiguration();
         }
     }
 
-    selectBrowserItem(element, item) {
-        // Remove previous selection
-        document.querySelectorAll('.browser-item').forEach(el => el.classList.remove('selected'));
-
-        if (item.isDirectory && this.browserMode === 'folder') {
-            element.classList.add('selected');
-        } else if (!item.isDirectory && this.browserMode === 'file') {
-            element.classList.add('selected');
-        } else if (item.isDirectory) {
-            // Navigate into directory
-            this.currentPath = item.path;
-            this.loadBrowserContent();
-        }
-    }
-
-    async navigateUp() {
-        const parentPath = await this.apiCall(`browse/parent?path=${encodeURIComponent(this.currentPath)}`);
-        if (parentPath) {
-            this.currentPath = parentPath;
-            await this.loadBrowserContent();
-        }
-    }
-
-    selectPath() {
-        const selected = document.querySelector('.browser-item.selected');
-        if (selected && this.browserTarget) {
-            const path = selected.dataset.path;
-            document.getElementById(this.browserTarget).value = path;
-            this.closeFileBrowser();
-        }
-    }
 
     // External Links
     openDonationLink() {
@@ -811,17 +746,6 @@ function updateFolderInputs(type, count) {
     window.sortarrWeb.updateFolderInputs(type, value, existing);
 }
 
-function closeFileBrowser() {
-    window.sortarrWeb.closeFileBrowser();
-}
-
-function navigateUp() {
-    window.sortarrWeb.navigateUp();
-}
-
-function selectPath() {
-    window.sortarrWeb.selectPath();
-}
 
 // Initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {

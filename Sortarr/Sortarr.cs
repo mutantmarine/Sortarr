@@ -717,10 +717,7 @@ namespace Sortarr
                 response.ContentType = "application/json";
 
                 // Only log API requests that aren't frequent polling calls
-                if (!(url == "/api/logs" || (url == "/api/config" && request.HttpMethod == "GET")))
-                {
-                    LogMessage($"API request: {request.HttpMethod} {url}");
-                }
+                // Silenced API request logging
 
                 if (request.HttpMethod == "OPTIONS")
                 {
@@ -766,7 +763,7 @@ namespace Sortarr
                                     ApplyConfigUpdate(update);
                                     var updatedConfig = CaptureCurrentConfig();
                                     jsonResponse = JsonSerializer.Serialize(new { success = true, config = updatedConfig }, jsonOptions);
-                                    LogMessage("Configuration updated via API");
+                                    // Silenced configuration update logging
                                 }
                             }
                         }
@@ -879,7 +876,7 @@ namespace Sortarr
                                 if (success)
                                 {
                                     jsonResponse = JsonSerializer.Serialize(new { success = true, message = "Scheduled task created successfully" }, jsonOptions);
-                                    LogMessage("Scheduled task created via API");
+                                    // Silenced scheduled task creation logging
                                 }
                                 else
                                 {
@@ -914,13 +911,50 @@ namespace Sortarr
                     if (success)
                     {
                         jsonResponse = JsonSerializer.Serialize(new { success = true, message = "Scheduled task removed successfully" }, jsonOptions);
-                        LogMessage("Scheduled task removed via API");
+                        // Silenced scheduled task removal logging
                     }
                     else
                     {
                         response.StatusCode = 500;
                         jsonResponse = JsonSerializer.Serialize(new { success = false, error = "Failed to remove scheduled task" }, jsonOptions);
                     }
+                }
+                else if (url == "/api/browse/file" && request.HttpMethod == "POST")
+                {
+                    var selectedPath = ExecuteOnUiThread(() =>
+                    {
+                        using (OpenFileDialog dialog = new OpenFileDialog())
+                        {
+                            dialog.Filter = "Executable files (*.exe)|*.exe|All files (*.*)|*.*";
+                            dialog.Title = "Select FileBot Executable";
+                            if (dialog.ShowDialog() == DialogResult.OK)
+                                return dialog.FileName;
+                            return null;
+                        }
+                    });
+
+                    if (selectedPath != null)
+                        jsonResponse = JsonSerializer.Serialize(new { success = true, path = selectedPath }, jsonOptions);
+                    else
+                        jsonResponse = JsonSerializer.Serialize(new { success = false, message = "No file selected" }, jsonOptions);
+                }
+                else if (url == "/api/browse/folder" && request.HttpMethod == "POST")
+                {
+                    var selectedPath = ExecuteOnUiThread(() =>
+                    {
+                        using (FolderBrowserDialog dialog = new FolderBrowserDialog())
+                        {
+                            dialog.Description = "Select Folder";
+                            if (dialog.ShowDialog() == DialogResult.OK)
+                                return dialog.SelectedPath;
+                            return null;
+                        }
+                    });
+
+                    if (selectedPath != null)
+                        jsonResponse = JsonSerializer.Serialize(new { success = true, path = selectedPath }, jsonOptions);
+                    else
+                        jsonResponse = JsonSerializer.Serialize(new { success = false, message = "No folder selected" }, jsonOptions);
                 }
                 else if (url.StartsWith("/api/browse") && request.HttpMethod == "GET")
                 {
@@ -1006,7 +1040,7 @@ namespace Sortarr
                 {
                     response.StatusCode = 404;
                     jsonResponse = "{\"error\": \"API endpoint not found\"}";
-                    LogMessage($"API endpoint not found: {url}");
+                    // Silenced API endpoint not found logging
                 }
 
                 byte[] buffer = Encoding.UTF8.GetBytes(jsonResponse);
@@ -1029,7 +1063,7 @@ namespace Sortarr
             {
                 var config = CaptureCurrentConfig();
                 string json = JsonSerializer.Serialize(config, jsonOptions);
-                LogMessage($"API config data: FileBot={config?.FilebotPath}, Downloads={config?.DownloadsFolder}, HD Movies={config?.EnableHDMovies}, HD Movie folders={config?.HdMovieFolders?.Length ?? 0}");
+                // Silenced API config data logging
                 return json;
             }
             catch (Exception ex)
@@ -1648,7 +1682,7 @@ namespace Sortarr
                     if (pairs.ContainsKey("overrideMovies")) overrideMoviesTextBox.Text = pairs["overrideMovies"];
                     if (pairs.ContainsKey("overrideTV")) overrideTVShowsTextBox.Text = pairs["overrideTV"];
                     ValidateSetup();
-                    LogMessage("Configuration updated via web interface.");
+                    // Silenced configuration update via web interface logging
                 }));
             }
             else
